@@ -628,7 +628,7 @@ pub async fn get_upstream_bili_playurl(
     // generate api info & proxy_info, for later adding proxy balance
     let config = bili_runtime.config;
     let req_type = ReqType::Playurl(Area::new(params.area_num), params.is_app, params.is_tv);
-    let api = req_type.get_api(config);
+    let api = req_type.get_api(config).ok_or(EType::InvalidReq)?;
     let (proxy_open, proxy_url) = req_type.get_proxy(config);
     let playurl_type = params.get_playurl_type();
     // generate req params
@@ -914,7 +914,7 @@ pub async fn get_upstream_bili_playurl_background(
     // generate api info & proxy_info, for later adding proxy balance
     let config = bili_runtime.config;
     let req_type = ReqType::Playurl(Area::new(params.area_num), params.is_app, params.is_tv);
-    let api = req_type.get_api(config);
+    let api = req_type.get_api(config).ok_or(EType::InvalidReq)?;
     let (proxy_open, proxy_url) = req_type.get_proxy(config);
     let playurl_type = params.get_playurl_type();
     // generate req params
@@ -1124,7 +1124,7 @@ pub async fn get_upstream_bili_search(
 ) -> Result<serde_json::Value, EType> {
     let config = bili_runtime.config;
     let req_type = ReqType::Search(Area::new(params.area_num as u8), params.is_app);
-    let api = req_type.get_api(config);
+    let api = req_type.get_api(config).ok_or(EType::InvalidReq)?;
     let (proxy_open, proxy_url) = req_type.get_proxy(config);
     let ts_string = Local::now().timestamp_millis().to_string();
     let signed_url = build_search_request_url(params, raw_query, api, &ts_string);
@@ -1406,7 +1406,7 @@ pub async fn get_upstream_bili_season(
 ) -> Result<String, EType> {
     let config = bili_runtime.config;
     let req_type = ReqType::ThSeason;
-    let api = req_type.get_api(config);
+    let api = req_type.get_api(config).ok_or(EType::InvalidReq)?;
     let (proxy_open, proxy_url) = req_type.get_proxy(config);
 
     let dt = Local::now();

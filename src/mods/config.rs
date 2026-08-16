@@ -145,7 +145,7 @@ fn migrate_config_value(config: &mut serde_json::Value) -> bool {
         .get("config_version")
         .and_then(serde_json::Value::as_u64)
         .unwrap_or(1);
-    if version >= 5 {
+    if version >= 6 {
         return false;
     }
 
@@ -170,10 +170,11 @@ fn migrate_config_value(config: &mut serde_json::Value) -> bool {
         "resign_api_policy",
         "local_wblist",
         "blacklist_config",
+        "th_tv_playurl_api",
     ] {
         object.remove(deprecated);
     }
-    object.insert("config_version".to_string(), serde_json::Value::from(5));
+    object.insert("config_version".to_string(), serde_json::Value::from(6));
     true
 }
 
@@ -192,8 +193,20 @@ mod tests {
         assert!(migrate_config_value(&mut value));
         assert_eq!(value["http_port"], 2662);
         assert_eq!(value["worker_num"], 8);
-        assert_eq!(value["config_version"], 5);
+        assert_eq!(value["config_version"], 6);
         assert!(value.get("port").is_none());
         assert!(value.get("woker_num").is_none());
+    }
+
+    #[test]
+    fn migration_removes_thailand_tv_upstream() {
+        let mut value = serde_json::json!({
+            "config_version": 5,
+            "th_tv_playurl_api": "https://example.com/unsupported-tv"
+        });
+
+        assert!(migrate_config_value(&mut value));
+        assert_eq!(value["config_version"], 6);
+        assert!(value.get("th_tv_playurl_api").is_none());
     }
 }

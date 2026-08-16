@@ -59,8 +59,6 @@ pub struct BiliConfig {
     pub tw_tv_playurl_api: String,
     #[serde(default = "default_tv_playurl_api")]
     pub hk_tv_playurl_api: String,
-    #[serde(default = "default_tv_playurl_api")]
-    pub th_tv_playurl_api: String,
     pub cn_app_search_api: String,
     pub tw_app_search_api: String,
     pub hk_app_search_api: String,
@@ -527,53 +525,53 @@ pub enum ReqType {
     Other(bool, String),
 }
 impl ReqType {
-    pub fn get_api<'config>(&self, config: &'config BiliConfig) -> &'config str {
+    pub fn get_api<'config>(&self, config: &'config BiliConfig) -> Option<&'config str> {
         match self {
             ReqType::Playurl(area, is_app, is_tv) => {
                 if *is_tv {
                     match area {
-                        Area::Cn => &config.cn_tv_playurl_api,
-                        Area::Hk => &config.hk_tv_playurl_api,
-                        Area::Tw => &config.tw_tv_playurl_api,
-                        Area::Th => &config.th_tv_playurl_api,
+                        Area::Cn => Some(&config.cn_tv_playurl_api),
+                        Area::Hk => Some(&config.hk_tv_playurl_api),
+                        Area::Tw => Some(&config.tw_tv_playurl_api),
+                        Area::Th => None,
                     }
                 } else if *is_app {
-                    match area {
+                    Some(match area {
                         Area::Cn => &config.cn_app_playurl_api,
                         Area::Hk => &config.hk_app_playurl_api,
                         Area::Tw => &config.tw_app_playurl_api,
                         Area::Th => &config.th_app_playurl_api, //should not
-                    }
+                    })
                 } else {
-                    match area {
+                    Some(match area {
                         Area::Cn => &config.cn_web_playurl_api,
                         Area::Hk => &config.hk_web_playurl_api,
                         Area::Tw => &config.tw_web_playurl_api,
                         Area::Th => &config.th_web_playurl_api, //should not
-                    }
+                    })
                 }
             }
             ReqType::Search(area, is_app) => {
                 if *is_app {
-                    match area {
+                    Some(match area {
                         Area::Cn => &config.cn_app_search_api,
                         Area::Hk => &config.hk_app_search_api,
                         Area::Tw => &config.tw_app_search_api,
                         Area::Th => &config.th_app_search_api, //should not
-                    }
+                    })
                 } else {
-                    match area {
+                    Some(match area {
                         Area::Cn => &config.cn_web_search_api,
                         Area::Hk => &config.hk_web_search_api,
                         Area::Tw => &config.tw_web_search_api,
                         Area::Th => &config.th_web_search_api, //should not
-                    }
+                    })
                 }
             }
-            ReqType::ThSeason => &config.th_app_season_api,
-            ReqType::ThSubtitle => &config.th_app_season_sub_api,
+            ReqType::ThSeason => Some(&config.th_app_season_api),
+            ReqType::ThSubtitle => Some(&config.th_app_season_sub_api),
             ReqType::Accesskey => unimplemented!(),
-            ReqType::Other(_, _) => "",
+            ReqType::Other(_, _) => Some(""),
         }
     }
     pub fn get_proxy<'config>(&self, config: &'config BiliConfig) -> (bool, &'config str) {
@@ -1965,7 +1963,7 @@ impl ReportHealthData {
 * the following is general types
 */
 fn config_version() -> u16 {
-    5
+    6
 }
 
 fn default_false() -> bool {
@@ -2147,6 +2145,10 @@ impl Area {
             Area::Tw => "tw",
             Area::Th => "th",
         }
+    }
+
+    pub fn supports_tv(&self) -> bool {
+        !matches!(self, Area::Th)
     }
 }
 

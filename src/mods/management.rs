@@ -351,7 +351,7 @@ async fn update_config(
     let Some(next_object) = next_value.as_object_mut() else {
         return api_error(StatusCode::BAD_REQUEST, "配置必须是 JSON 对象");
     };
-    next_object.insert("config_version".to_string(), Value::from(5));
+    next_object.insert("config_version".to_string(), Value::from(6));
 
     let mut next: BiliConfig = match serde_json::from_value(next_value) {
         Ok(value) => value,
@@ -778,7 +778,6 @@ fn validate_config(config: &BiliConfig) -> Result<(), Vec<Value>> {
         ("cn_tv_playurl_api", &config.cn_tv_playurl_api),
         ("tw_tv_playurl_api", &config.tw_tv_playurl_api),
         ("hk_tv_playurl_api", &config.hk_tv_playurl_api),
-        ("th_tv_playurl_api", &config.th_tv_playurl_api),
         ("cn_app_search_api", &config.cn_app_search_api),
         ("tw_app_search_api", &config.tw_app_search_api),
         ("hk_app_search_api", &config.hk_app_search_api),

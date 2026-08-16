@@ -1,5 +1,5 @@
 {
-  "config_version": 5,
+  "config_version": 6,
   "redis": "redis://127.0.0.1:6379",
   "worker_num": 8,
   "http_port": 2662,
@@ -22,7 +22,6 @@
   "cn_tv_playurl_api": "https://api.snm0516.aisee.tv/pgc/player/api/playurltv",
   "tw_tv_playurl_api": "https://api.snm0516.aisee.tv/pgc/player/api/playurltv",
   "hk_tv_playurl_api": "https://api.snm0516.aisee.tv/pgc/player/api/playurltv",
-  "th_tv_playurl_api": "https://api.snm0516.aisee.tv/pgc/player/api/playurltv",
   "cn_app_search_api": "https://app.bilibili.com/x/v2/search/type",
   "tw_app_search_api": "https://app.bilibili.com/x/v2/search/type",
   "hk_app_search_api": "https://app.bilibili.com/x/v2/search/type",

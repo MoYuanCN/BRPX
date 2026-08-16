@@ -10,7 +10,7 @@ Path: /pgc/player/api/playurltv
 Upstream: https://api.snm0516.aisee.tv/pgc/player/api/playurltv
 ```
 
-路由命中后会强制使用 TV 语义和独立缓存键，不依赖 `fnval` 推断客户端。四个地区可以分别修改 `cn_tv_playurl_api`、`hk_tv_playurl_api`、`tw_tv_playurl_api` 和 `th_tv_playurl_api`。
+路由命中后会强制使用 TV 语义和独立缓存键，不依赖 `fnval` 推断客户端。大陆、香港和台湾可以分别修改 `cn_tv_playurl_api`、`hk_tv_playurl_api` 和 `tw_tv_playurl_api`。泰区没有 TV 接口，`area=th` 的 TV 请求会被拒绝。
 
 ## 客户端流量指向
 

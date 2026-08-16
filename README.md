@@ -8,7 +8,7 @@ BRPX 是一个基于 Rust、Actix Web 和 Redis 的自托管哔哩哔哩解析�
 
 - 国内、香港、台湾、泰国地区播放与搜索上游
 - APP、Web、泰区字幕和 `access_key` 接口
-- TV 路由 `/pgc/player/api/playurltv`
+- 大陆、香港、台湾 TV 路由 `/pgc/player/api/playurltv`（泰区不支持 TV）
 - Redis 缓存、地区缓存、限流、上游代理和重签名
 - Web 管理端与版本化配置
 - UID、IP、CIDR、访问令牌指纹允许/拒绝规则

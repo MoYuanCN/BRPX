@@ -36,8 +36,7 @@
         { "path": "th_web_playurl_api", "label": "泰区 Web 播放", "description": "泰区 Web 播放请求上游。", "effect": "决定 TH Web 播放链访问的接口。", "control": "url" },
         { "path": "cn_tv_playurl_api", "label": "大陆 TV 播放", "description": "大陆 TV 路由使用的独立上游。", "effect": "仅影响 /pgc/player/api/playurltv 的 CN 请求。", "control": "url" },
         { "path": "hk_tv_playurl_api", "label": "香港 TV 播放", "description": "香港 TV 路由使用的独立上游。", "effect": "保持 TV 响应语义与缓存分区独立。", "control": "url" },
-        { "path": "tw_tv_playurl_api", "label": "台湾 TV 播放", "description": "台湾 TV 路由使用的独立上游。", "effect": "保持 TV 响应语义与缓存分区独立。", "control": "url" },
-        { "path": "th_tv_playurl_api", "label": "泰区 TV 播放", "description": "泰区 TV 路由使用的独立上游。", "effect": "保持 TV 响应语义与缓存分区独立。", "control": "url" }
+        { "path": "tw_tv_playurl_api", "label": "台湾 TV 播放", "description": "台湾 TV 路由使用的独立上游。", "effect": "保持 TV 响应语义与缓存分区独立。", "control": "url" }
       ]
     },
     {

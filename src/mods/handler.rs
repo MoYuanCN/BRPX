@@ -67,6 +67,18 @@ pub async fn handle_playurl_request(
         }
     };
 
+    if !is_tv_route {
+        params.is_tv = matches!(query.get("fnval"), Some("130" | "0" | "2"));
+    }
+    if params.is_tv && !Area::new(params.area_num).supports_tv() {
+        update_context(req, |event| {
+            event.area = params.area.to_string();
+            event.client_type = "tv".to_string();
+            event.business_code = Some(-412);
+        });
+        build_response!(json!({ "code": -412, "message": "泰区不支持 TV 播放" }).to_string());
+    }
+
     // detect req UA
     params.user_agent = match req.headers().get("user-agent") {
         Option::Some(ua) => ua.to_str().unwrap(),
@@ -180,9 +192,6 @@ pub async fn handle_playurl_request(
         .get("platform")
         .unwrap_or(client_type.mobi_app().unwrap_or(""));
 
-    if !is_tv_route {
-        params.is_tv = matches!(query.get("fnval"), Some("130" | "0" | "2"));
-    }
     // detect client accesskey type
     let client_ak_type = if let Some(value) =
         ClientType::init_for_ak(params.appkey, params.is_app, params.is_th, req)
@@ -278,6 +287,15 @@ pub async fn handle_playurl_request(
                     );
                     params.area_num = area.num();
                     params.init_params(area);
+                    if params.is_tv && !Area::new(params.area_num).supports_tv() {
+                        update_context(req, |event| {
+                            event.area = params.area.to_string();
+                            event.business_code = Some(-412);
+                        });
+                        build_response!(
+                            json!({ "code": -412, "message": "泰区不支持 TV 播放" }).to_string()
+                        );
+                    }
                 }
                 None => {
                     debug!(
@@ -966,7 +984,7 @@ pub async fn errorurl_reg(url: &str) -> Option<u8> {
 mod tests {
     use super::{
         errorurl_reg, handle_api_access_key_request, handle_api_health_request,
-        normalize_search_response,
+        handle_playurl_request, normalize_search_response,
     };
     use crate::mods::{
         audit::AuditService,
@@ -1049,12 +1067,50 @@ mod tests {
         let config = test_config();
         assert_eq!(
             ReqType::Playurl(Area::Cn, true, true).get_api(&config),
-            "https://api.snm0516.aisee.tv/pgc/player/api/playurltv"
+            Some("https://api.snm0516.aisee.tv/pgc/player/api/playurltv")
         );
         assert_eq!(
             ReqType::Playurl(Area::Cn, true, false).get_api(&config),
-            config.cn_app_playurl_api
+            Some(config.cn_app_playurl_api.as_str())
         );
+        assert!(ReqType::Playurl(Area::Th, true, true)
+            .get_api(&config)
+            .is_none());
+        assert!(!Area::Th.supports_tv());
+    }
+
+    #[actix_web::test]
+    async fn thailand_tv_requests_are_rejected() {
+        let config = test_config();
+        let pool = RedisConfig::from_url("redis://127.0.0.1/")
+            .create_pool(Some(Runtime::Tokio1))
+            .unwrap();
+        let (sender, _receiver) = bounded::<BackgroundTaskType>(1);
+        let database = Database::open(":memory:").unwrap();
+        let (audit, _audit_receiver) = AuditService::new(database.clone(), 8);
+        let state = web::Data::new(AppState::new(
+            config,
+            PathBuf::from("config.json"),
+            pool,
+            Arc::new(sender),
+            database,
+            audit,
+        ));
+
+        for (uri, is_tv_route) in [
+            ("/pgc/player/api/playurltv?area=th", true),
+            ("/pgc/player/api/playurl?area=th&fnval=130", false),
+        ] {
+            let req = TestRequest::with_uri(uri)
+                .app_data(state.clone())
+                .to_http_request();
+            let resp = handle_playurl_request(&req, true, false, is_tv_route).await;
+            let body = to_bytes(resp.into_body()).await.unwrap();
+            let body_json: Value = serde_json::from_slice(&body).unwrap();
+
+            assert_eq!(body_json["code"], -412);
+            assert_eq!(body_json["message"], "泰区不支持 TV 播放");
+        }
     }
 
     #[test]
