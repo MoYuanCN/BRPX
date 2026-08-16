@@ -1,0 +1,172 @@
+{
+  "groups": [
+    {
+      "id": "runtime",
+      "label": "运行与安全",
+      "description": "监听、资源、限流、代理信任和审计生命周期。",
+      "fields": [
+        { "path": "config_version", "label": "配置版本", "description": "当前配置结构版本，由 BRPX 迁移器维护。", "effect": "用于兼容旧配置，不应手动修改。", "readonly": true },
+        { "path": "redis", "label": "Redis 地址", "description": "播放、用户、地区和健康状态缓存所使用的 Redis 连接 URL。", "effect": "连接目标改变后必须重启连接池。", "restart": true, "secret": true },
+        { "path": "worker_num", "label": "HTTP Worker 数", "description": "每个 Actix HttpServer 创建的 Worker 线程数。", "effect": "提高并行处理能力，也会增加线程和内存占用。", "restart": true, "min": 1, "max": 128 },
+        { "path": "http_port", "label": "HTTP 端口", "description": "未加密 HTTP 服务监听端口。", "effect": "改变客户端或反向代理连接 BRPX 的端口。", "restart": true, "min": 1, "max": 65535 },
+        { "path": "https_port", "label": "HTTPS 端口", "description": "启用内置 TLS 后使用的监听端口。", "effect": "证书从状态目录的 certificates 子目录加载。", "restart": true, "min": 1, "max": 65535 },
+        { "path": "https_support", "label": "内置 HTTPS", "description": "由 BRPX 直接加载证书并提供 HTTPS。", "effect": "关闭时建议由 Nginx 或 Caddy 终止 TLS。", "restart": true },
+        { "path": "http2https_support", "label": "HTTP 跳转 HTTPS", "description": "同时启动 HTTP 监听器并把请求重定向到 HTTPS。", "effect": "会额外创建一组 HTTP Worker。", "restart": true },
+        { "path": "limit_biliroaming_version_open", "label": "限制客户端版本", "description": "检查请求中的哔哩漫游客户端版本。", "effect": "超出允许范围的客户端会收到兼容错误。" },
+        { "path": "limit_biliroaming_version_min", "label": "最低客户端版本", "description": "启用版本限制后允许的最小版本号。", "effect": "低于该值的请求将被拒绝。", "min": 0 },
+        { "path": "limit_biliroaming_version_max", "label": "最高客户端版本", "description": "启用版本限制后允许的最大版本号。", "effect": "高于该值的请求将被拒绝。", "min": 0 },
+        { "path": "rate_limit_per_second", "label": "每秒请求数", "description": "每个 access key 或解析后客户端 IP 的持续请求速率。", "effect": "超过速率时返回业务码 -429。", "restart": true, "min": 1 },
+        { "path": "rate_limit_burst", "label": "突发容量", "description": "限流器允许短时间积累的请求额度。", "effect": "值越大越能容忍瞬时请求，也会减弱突发保护。", "restart": true, "min": 1 },
+        { "path": "trusted_proxies", "label": "可信代理", "description": "允许提供 X-Forwarded-For 或 X-Real-IP 的 TCP 对端 IP/CIDR。", "effect": "配置过宽会允许伪造来源 IP，建议只填精确代理地址。", "control": "array", "itemLabel": "IP 或 CIDR" },
+        { "path": "audit_retention_days", "label": "审计保留天数", "description": "请求审计事件在 SQLite 中保存的最长时间。", "effect": "启动后立即清理一次，之后每小时清理过期数据。", "min": 1, "max": 3650 }
+      ]
+    },
+    {
+      "id": "playurl",
+      "label": "播放上游",
+      "description": "各地区 APP、Web 和 TV 播放请求的目标接口。",
+      "fields": [
+        { "path": "cn_app_playurl_api", "label": "大陆 APP 播放", "description": "大陆地区 APP 播放请求上游。", "effect": "决定 CN APP 播放链访问的接口。", "control": "url" },
+        { "path": "hk_app_playurl_api", "label": "香港 APP 播放", "description": "香港地区 APP 播放请求上游。", "effect": "决定 HK APP 播放链访问的接口。", "control": "url" },
+        { "path": "tw_app_playurl_api", "label": "台湾 APP 播放", "description": "台湾地区 APP 播放请求上游。", "effect": "决定 TW APP 播放链访问的接口。", "control": "url" },
+        { "path": "th_app_playurl_api", "label": "泰区 APP 播放", "description": "泰区或国际版 APP 播放请求上游。", "effect": "决定 TH APP 播放链访问的接口。", "control": "url" },
+        { "path": "cn_web_playurl_api", "label": "大陆 Web 播放", "description": "大陆地区 Web 播放请求上游。", "effect": "决定 CN Web 播放链访问的接口。", "control": "url" },
+        { "path": "hk_web_playurl_api", "label": "香港 Web 播放", "description": "香港地区 Web 播放请求上游。", "effect": "决定 HK Web 播放链访问的接口。", "control": "url" },
+        { "path": "tw_web_playurl_api", "label": "台湾 Web 播放", "description": "台湾地区 Web 播放请求上游。", "effect": "决定 TW Web 播放链访问的接口。", "control": "url" },
+        { "path": "th_web_playurl_api", "label": "泰区 Web 播放", "description": "泰区 Web 播放请求上游。", "effect": "决定 TH Web 播放链访问的接口。", "control": "url" },
+        { "path": "cn_tv_playurl_api", "label": "大陆 TV 播放", "description": "大陆 TV 路由使用的独立上游。", "effect": "仅影响 /pgc/player/api/playurltv 的 CN 请求。", "control": "url" },
+        { "path": "hk_tv_playurl_api", "label": "香港 TV 播放", "description": "香港 TV 路由使用的独立上游。", "effect": "保持 TV 响应语义与缓存分区独立。", "control": "url" },
+        { "path": "tw_tv_playurl_api", "label": "台湾 TV 播放", "description": "台湾 TV 路由使用的独立上游。", "effect": "保持 TV 响应语义与缓存分区独立。", "control": "url" },
+        { "path": "th_tv_playurl_api", "label": "泰区 TV 播放", "description": "泰区 TV 路由使用的独立上游。", "effect": "保持 TV 响应语义与缓存分区独立。", "control": "url" }
+      ]
+    },
+    {
+      "id": "content",
+      "label": "搜索与番剧上游",
+      "description": "搜索、番剧信息、字幕辅助和通用域名映射。",
+      "fields": [
+        { "path": "cn_app_search_api", "label": "大陆 APP 搜索", "description": "大陆 APP 搜索上游。", "effect": "决定 CN APP 搜索请求目标。", "control": "url" },
+        { "path": "hk_app_search_api", "label": "香港 APP 搜索", "description": "香港 APP 搜索上游。", "effect": "决定 HK APP 搜索请求目标。", "control": "url" },
+        { "path": "tw_app_search_api", "label": "台湾 APP 搜索", "description": "台湾 APP 搜索上游。", "effect": "决定 TW APP 搜索请求目标。", "control": "url" },
+        { "path": "th_app_search_api", "label": "泰区 APP 搜索", "description": "泰区或国际版 APP 搜索上游。", "effect": "决定 TH APP 搜索请求目标。", "control": "url" },
+        { "path": "cn_web_search_api", "label": "大陆 Web 搜索", "description": "大陆 Web 搜索上游。", "effect": "决定 CN Web 搜索请求目标。", "control": "url" },
+        { "path": "hk_web_search_api", "label": "香港 Web 搜索", "description": "香港 Web 搜索上游。", "effect": "决定 HK Web 搜索请求目标。", "control": "url" },
+        { "path": "tw_web_search_api", "label": "台湾 Web 搜索", "description": "台湾 Web 搜索上游。", "effect": "决定 TW Web 搜索请求目标。", "control": "url" },
+        { "path": "th_web_search_api", "label": "泰区 Web 搜索", "description": "泰区 Web 搜索上游。", "effect": "决定 TH Web 搜索请求目标。", "control": "url" },
+        { "path": "th_app_season_api", "label": "泰区番剧信息", "description": "国际版番剧详情请求上游。", "effect": "影响泰区 season 接口的数据来源。", "control": "url" },
+        { "path": "th_app_season_sub_api", "label": "泰区字幕组接口", "description": "可选的第三方番剧字幕补充接口，season_id 会附加在其后。", "effect": "开启字幕组替换时影响番剧详情中的字幕入口。", "control": "url" },
+        { "path": "th_app_season_sub_name", "label": "泰区字幕组名称", "description": "显示给客户端的字幕来源名称。", "effect": "只影响展示文案。" },
+        { "path": "th_app_season_sub_open", "label": "启用泰区字幕组", "description": "允许调用配置的字幕组接口补充番剧信息。", "effect": "开启前应确认接口可信且可用。" },
+        { "path": "general_api_bilibili_com_proxy_api", "label": "api.bilibili.com 映射", "description": "需要重写通用 API 域名时使用的目标主机。", "effect": "影响部分上游请求的 Host 映射。" },
+        { "path": "general_app_bilibili_com_proxy_api", "label": "app.bilibili.com 映射", "description": "需要重写 APP API 域名时使用的目标主机。", "effect": "影响部分 APP 上游请求的 Host 映射。" }
+      ]
+    },
+    {
+      "id": "proxy",
+      "label": "地区代理",
+      "description": "按业务和地区控制上游网络出口；地址可使用 SOCKS5、HTTP 或 HTTPS。",
+      "fields": [
+        { "path": "cn_proxy_playurl_open", "label": "大陆播放代理", "description": "是否为大陆播放请求启用代理。", "effect": "开启后使用对应代理地址访问上游。" },
+        { "path": "cn_proxy_playurl_url", "label": "大陆播放代理地址", "description": "大陆播放请求的代理端点。", "effect": "无协议时按 SOCKS5 处理。", "secret": true },
+        { "path": "hk_proxy_playurl_open", "label": "香港播放代理", "description": "是否为香港播放请求启用代理。", "effect": "开启后使用对应代理地址访问上游。" },
+        { "path": "hk_proxy_playurl_url", "label": "香港播放代理地址", "description": "香港播放请求的代理端点。", "effect": "可包含代理认证信息。", "secret": true },
+        { "path": "tw_proxy_playurl_open", "label": "台湾播放代理", "description": "是否为台湾播放请求启用代理。", "effect": "开启后使用对应代理地址访问上游。" },
+        { "path": "tw_proxy_playurl_url", "label": "台湾播放代理地址", "description": "台湾播放请求的代理端点。", "effect": "可包含代理认证信息。", "secret": true },
+        { "path": "th_proxy_playurl_open", "label": "泰区播放代理", "description": "是否为泰区播放请求启用代理。", "effect": "开启后使用对应代理地址访问上游。" },
+        { "path": "th_proxy_playurl_url", "label": "泰区播放代理地址", "description": "泰区播放请求的代理端点。", "effect": "可包含代理认证信息。", "secret": true },
+        { "path": "cn_proxy_search_open", "label": "大陆搜索代理", "description": "是否为大陆搜索请求启用代理。", "effect": "开启后使用对应代理地址访问上游。" },
+        { "path": "cn_proxy_search_url", "label": "大陆搜索代理地址", "description": "大陆搜索请求的代理端点。", "effect": "无协议时按 SOCKS5 处理。", "secret": true },
+        { "path": "hk_proxy_search_open", "label": "香港搜索代理", "description": "是否为香港搜索请求启用代理。", "effect": "开启后使用对应代理地址访问上游。" },
+        { "path": "hk_proxy_search_url", "label": "香港搜索代理地址", "description": "香港搜索请求的代理端点。", "effect": "无协议时按 SOCKS5 处理。", "secret": true },
+        { "path": "tw_proxy_search_open", "label": "台湾搜索代理", "description": "是否为台湾搜索请求启用代理。", "effect": "开启后使用对应代理地址访问上游。" },
+        { "path": "tw_proxy_search_url", "label": "台湾搜索代理地址", "description": "台湾搜索请求的代理端点。", "effect": "无协议时按 SOCKS5 处理。", "secret": true },
+        { "path": "th_proxy_search_open", "label": "泰区搜索代理", "description": "是否为泰区搜索请求启用代理。", "effect": "开启后使用对应代理地址访问上游。" },
+        { "path": "th_proxy_search_url", "label": "泰区搜索代理地址", "description": "泰区搜索请求的代理端点。", "effect": "无协议时按 SOCKS5 处理。", "secret": true },
+        { "path": "cn_proxy_token_open", "label": "大陆账号代理", "description": "是否为大陆账号状态和令牌请求启用代理。", "effect": "影响 UID/VIP 信息查询。" },
+        { "path": "cn_proxy_token_url", "label": "大陆账号代理地址", "description": "大陆账号状态请求的代理端点。", "effect": "不可用时可能导致用户识别失败。", "secret": true },
+        { "path": "th_proxy_token_open", "label": "泰区账号代理", "description": "是否为泰区账号状态和令牌请求启用代理。", "effect": "没有本地代理时应关闭。" },
+        { "path": "th_proxy_token_url", "label": "泰区账号代理地址", "description": "泰区账号状态请求的代理端点。", "effect": "不可用时可能导致泰区请求失败。", "secret": true },
+        { "path": "cn_proxy_accesskey_open", "label": "Access Key 代理", "description": "是否为大陆 Access Key 获取接口启用代理。", "effect": "只影响 /api/accesskey 的相关上游。" },
+        { "path": "cn_proxy_accesskey_url", "label": "Access Key 代理地址", "description": "Access Key 获取请求的代理端点。", "effect": "开启代理时不能为空。", "secret": true },
+        { "path": "th_proxy_subtitle_open", "label": "泰区字幕代理", "description": "是否为泰区字幕请求启用代理。", "effect": "没有本地代理时应关闭。" },
+        { "path": "th_proxy_subtitle_url", "label": "泰区字幕代理地址", "description": "泰区字幕请求的代理端点。", "effect": "不可用时字幕请求会失败。", "secret": true }
+      ]
+    },
+    {
+      "id": "resign",
+      "label": "重签名",
+      "description": "按地区控制服务器凭据重签名及其来源。地区键为 1=大陆、2=香港、3=台湾、4=泰区。",
+      "fields": [
+        { "path": "resign_open", "label": "启用重签名", "description": "控制各地区是否使用服务器凭据重新签名。", "effect": "开启后请求可能使用共享账号身份。", "fixedKeys": true, "childLabels": { "1": "大陆", "2": "香港", "3": "台湾", "4": "泰区" } },
+        { "path": "resign_pub", "label": "向普通用户开放", "description": "控制各地区重签名是否向非会员请求开放。", "effect": "扩大共享凭据使用范围，开启前评估账号风险。", "fixedKeys": true, "childLabels": { "1": "大陆", "2": "香港", "3": "台湾", "4": "泰区" } },
+        { "path": "resign_from_existed_key", "label": "复用现有大陆凭据", "description": "允许大陆重签名从已有 key 派生。", "effect": "危险兼容功能，可能扩大账号暴露面。", "danger": true },
+        { "path": "resign_from_api_open", "label": "从 API 获取凭据", "description": "按地区从自定义接口获取重签名凭据。", "effect": "开启后依赖 resign_api 和对应签名。", "fixedKeys": true, "childLabels": { "1": "大陆", "2": "香港", "3": "台湾", "4": "泰区" } },
+        { "path": "resign_api", "label": "凭据 API", "description": "各地区获取重签名凭据的自定义 API URL。", "effect": "仅在对应 resign_from_api_open 开启时调用。", "fixedKeys": true, "valueControl": "url", "childLabels": { "1": "大陆", "2": "香港", "3": "台湾", "4": "泰区" } },
+        { "path": "resign_api_sign", "label": "凭据 API 签名", "description": "调用各地区凭据 API 时使用的共享签名。", "effect": "属于秘密，只会以掩码返回浏览器。", "fixedKeys": true, "secret": true, "childLabels": { "1": "大陆", "2": "香港", "3": "台湾", "4": "泰区" } }
+      ]
+    },
+    {
+      "id": "cache",
+      "label": "缓存与内容修整",
+      "description": "缓存 TTL、地区判断、AID 替换和搜索结果注入。",
+      "fields": [
+        { "path": "cache", "label": "缓存时间", "description": "按业务码或缓存类型设置 Redis TTL，单位为秒。", "effect": "时间越长上游压力越小，但旧结果保留更久。", "valueType": "number", "valueLabel": "秒" },
+        { "path": "area_cache_open", "label": "启用地区缓存", "description": "缓存剧集可用地区判断。", "effect": "减少重复地区探测请求。" },
+        { "path": "aid_replace_open", "label": "启用 AID 替换", "description": "在兼容路径中使用配置的 AID 修整响应。", "effect": "关闭后保留上游返回的原始标识。" },
+        { "path": "aid", "label": "替换 AID", "description": "AID 替换功能使用的目标数值。", "effect": "仅在 aid_replace_open 开启时生效。", "min": 1 },
+        { "path": "appsearch_remake", "label": "APP 搜索注入", "description": "关键词到 APP 搜索结果 JSON 字符串的映射。", "effect": "命中关键词时把自定义条目加入搜索响应。", "valueControl": "textarea" },
+        { "path": "websearch_remake", "label": "Web 搜索注入", "description": "关键词到 Web 搜索结果 JSON 字符串的映射。", "effect": "命中关键词时把自定义条目加入搜索响应。", "valueControl": "textarea" },
+        { "path": "donate_url", "label": "捐赠跳转地址", "description": "/donate 路由重定向到的 URL。", "effect": "留空时仍保留路由，但不会提供有效目标。", "control": "url" }
+      ]
+    },
+    {
+      "id": "integration",
+      "label": "接口与通知",
+      "description": "Access Key API 开放范围和健康状态通知渠道。",
+      "fields": [
+        { "path": "api_sign", "label": "Access Key API 签名", "description": "调用 /api/accesskey 时必须匹配的服务端签名。", "effect": "属于秘密；为空或泄露会降低接口保护能力。", "secret": true },
+        { "path": "api_assesskey_open", "label": "开放 Access Key API", "description": "按地区控制 /api/accesskey 是否提供服务。", "effect": "开启地区将允许持有正确签名的调用者获取凭据。", "fixedKeys": true, "childLabels": { "1": "大陆", "2": "香港", "3": "台湾", "4": "泰区" } },
+        { "path": "report_open", "label": "启用健康通知", "description": "上游健康状态变化时发送通知。", "effect": "开启时必须配置有效通知渠道。" },
+        {
+          "path": "report_config",
+          "label": "通知渠道",
+          "description": "选择 Telegram、PushPlus 或自定义 HTTP 通知。",
+          "effect": "只在 report_open 开启时发送。",
+          "control": "variant",
+          "variants": {
+            "TgBot": {
+              "label": "Telegram Bot",
+              "default": { "tg_bot_token": "", "tg_chat_id": "", "tg_proxy_api_open": false, "tg_proxy_url": "" },
+              "children": {
+                "tg_bot_token": { "label": "Bot Token", "description": "Telegram Bot API 令牌。", "secret": true },
+                "tg_chat_id": { "label": "Chat ID", "description": "接收健康通知的会话 ID。" },
+                "tg_proxy_api_open": { "label": "使用代理", "description": "Telegram API 是否经过代理。" },
+                "tg_proxy_url": { "label": "代理地址", "description": "Telegram API 使用的代理端点。", "secret": true }
+              }
+            },
+            "PushPlus": {
+              "label": "PushPlus",
+              "default": { "pushplus_push_title": "Biliroaming-Rust-Server Status", "pushplus_secret": "", "pushplus_group_id": "" },
+              "children": {
+                "pushplus_push_title": { "label": "通知标题", "description": "PushPlus 消息标题。" },
+                "pushplus_secret": { "label": "Token", "description": "PushPlus 发送令牌。", "secret": true },
+                "pushplus_group_id": { "label": "群组 ID", "description": "可选的 PushPlus 群组标识。" }
+              }
+            },
+            "Custom": {
+              "label": "自定义 HTTP",
+              "default": { "method": "Post", "url": "", "content": "", "proxy_open": false, "proxy_url": "" },
+              "children": {
+                "method": { "label": "请求方法", "description": "自定义通知使用 GET 或 POST。", "control": "select", "options": ["Get", "Post"] },
+                "url": { "label": "请求 URL", "description": "支持健康状态占位符的目标 URL。", "control": "url" },
+                "content": { "label": "请求内容", "description": "POST 内容模板，可使用健康状态占位符。", "control": "textarea" },
+                "proxy_open": { "label": "使用代理", "description": "自定义通知是否经过代理。" },
+                "proxy_url": { "label": "代理地址", "description": "自定义通知使用的代理端点。", "secret": true }
+              }
+            }
+          }
+        }
+      ]
+    }
+  ]
+}

@@ -143,6 +143,10 @@ pub fn configure_admin(config: &mut web::ServiceConfig) {
         .route("/admin/", web::get().to(admin_page))
         .route("/admin/assets/lucide.min.js", web::get().to(lucide_script))
         .route(
+            "/admin/assets/config-editor.js",
+            web::get().to(config_editor_script),
+        )
+        .route(
             "/admin/api/bootstrap/status",
             web::get().to(bootstrap_status),
         )
@@ -177,6 +181,12 @@ async fn lucide_script() -> HttpResponse {
     HttpResponse::Ok()
         .content_type("application/javascript; charset=utf-8")
         .body(include_str!("../html/lucide.min.js"))
+}
+
+async fn config_editor_script() -> HttpResponse {
+    HttpResponse::Ok()
+        .content_type("application/javascript; charset=utf-8")
+        .body(include_str!("../html/config-editor.js"))
 }
 
 async fn bootstrap_status(state: web::Data<AppState>) -> HttpResponse {
@@ -314,7 +324,13 @@ async fn get_config(request: HttpRequest, state: web::Data<AppState>) -> HttpRes
     ok(json!({
         "config": value,
         "path": state.config_path.display().to_string(),
+        "schema": config_schema(),
     }))
+}
+
+fn config_schema() -> Value {
+    serde_json::from_str(include_str!("../html/config-schema.json"))
+        .expect("embedded config schema must be valid JSON")
 }
 
 async fn update_config(
@@ -720,6 +736,8 @@ fn is_secret_key(key: &str) -> bool {
         || key.contains("token")
         || key.contains("access_key")
         || key.contains("private_key")
+        || key.contains("proxy_url")
+        || key.ends_with("_sign")
 }
 
 fn validate_config(config: &BiliConfig) -> Result<(), Vec<Value>> {
@@ -833,6 +851,7 @@ fn internal_error(error: impl Into<String>) -> HttpResponse {
 mod tests {
     use super::*;
     use actix_web::{test as awtest, App};
+    use std::collections::BTreeSet;
 
     fn test_state() -> AppState {
         let config: BiliConfig =
@@ -859,6 +878,8 @@ mod tests {
             "redis": "redis://:password@127.0.0.1:6379",
             "nested": {
                 "tg_bot_token": "token-\\\"value\\\\with-escapes",
+                "proxy_url": "socks5://user:password@127.0.0.1:7890",
+                "resign_api_sign": "shared-sign",
                 "normal": "visible"
             }
         });
@@ -866,8 +887,36 @@ mod tests {
         redact_secrets(&mut redacted, "");
         assert_eq!(redacted["redis"], MASKED_VALUE);
         assert_eq!(redacted["nested"]["tg_bot_token"], MASKED_VALUE);
+        assert_eq!(redacted["nested"]["proxy_url"], MASKED_VALUE);
+        assert_eq!(redacted["nested"]["resign_api_sign"], MASKED_VALUE);
         preserve_masked_values(&original, &mut redacted);
         assert_eq!(redacted, original);
+    }
+
+    #[test]
+    fn config_schema_covers_every_serialized_field() {
+        let config: BiliConfig =
+            serde_json::from_str(include_str!("../../config.example.json")).unwrap();
+        let serialized = serde_json::to_value(config).unwrap();
+        let expected = serialized
+            .as_object()
+            .unwrap()
+            .keys()
+            .cloned()
+            .collect::<BTreeSet<_>>();
+        let schema = config_schema();
+        let mut actual = BTreeSet::new();
+        for group in schema["groups"].as_array().unwrap() {
+            assert!(!group["label"].as_str().unwrap_or("").is_empty());
+            for field in group["fields"].as_array().unwrap() {
+                let path = field["path"].as_str().unwrap();
+                assert!(actual.insert(path.to_string()), "duplicate field: {path}");
+                assert!(!field["label"].as_str().unwrap_or("").is_empty());
+                assert!(!field["description"].as_str().unwrap_or("").is_empty());
+                assert!(!field["effect"].as_str().unwrap_or("").is_empty());
+            }
+        }
+        assert_eq!(actual, expected);
     }
 
     #[test]
