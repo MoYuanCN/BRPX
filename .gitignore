@@ -1,2 +1,41 @@
-/target
-Cargo.lock
+# Rust build output
+/target/
+
+# Local toolchains and downloaded build tools
+/.tooling/
+
+# Runtime configuration and secrets
+/config.json
+/config.yml
+/config.yaml
+/config.*.bak
+/.env
+/.env.*
+!/.env.example
+/certificates/
+*.key
+*.pem
+
+# Runtime state
+/data/
+*.db
+*.db-shm
+*.db-wal
+*.sqlite
+*.sqlite3
+*.log
+*.pid
+
+# Temporary files and backups
+*.tmp
+*.bak
+*.swp
+*~
+
+# Editors and operating systems
+/.idea/
+/.vscode/
+.DS_Store
+Thumbs.db
+Desktop.ini
+test.py
