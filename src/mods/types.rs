@@ -1,8 +1,9 @@
 use super::{
+    access_control::AccessControlService,
     ep_info::get_ep_need_vip,
     request::{redis_get, redis_set},
 };
-use actix_web::HttpRequest;
+use actix_web::{http::header::ContentType, HttpRequest, HttpResponse};
 use async_channel::{Sender, TrySendError};
 use chrono::{FixedOffset, Local, TimeZone, Utc};
 use deadpool_redis::Pool;
@@ -52,6 +53,14 @@ pub struct BiliConfig {
     pub tw_web_playurl_api: String,
     pub hk_web_playurl_api: String,
     pub th_web_playurl_api: String,
+    #[serde(default = "default_tv_playurl_api")]
+    pub cn_tv_playurl_api: String,
+    #[serde(default = "default_tv_playurl_api")]
+    pub tw_tv_playurl_api: String,
+    #[serde(default = "default_tv_playurl_api")]
+    pub hk_tv_playurl_api: String,
+    #[serde(default = "default_tv_playurl_api")]
+    pub th_tv_playurl_api: String,
     pub cn_app_search_api: String,
     pub tw_app_search_api: String,
     pub hk_app_search_api: String,
@@ -113,9 +122,6 @@ pub struct BiliConfig {
     #[serde(default = "default_hashmap_string")]
     pub resign_api_sign: HashMap<String, String>,
     pub cache: HashMap<String, u64>,
-    pub local_wblist: HashMap<String, (bool, bool)>,
-    #[serde(default)]
-    pub blacklist_config: BlackListType,
     pub appsearch_remake: HashMap<String, String>,
     pub websearch_remake: HashMap<String, String>,
     #[serde(default = "default_string")]
@@ -130,6 +136,10 @@ pub struct BiliConfig {
     pub report_config: ReportConfig,
     #[serde(default = "default_false")]
     pub area_cache_open: bool,
+    #[serde(default = "default_trusted_proxies")]
+    pub trusted_proxies: Vec<String>,
+    #[serde(default = "default_audit_retention_days")]
+    pub audit_retention_days: u32,
     // 以下为不会序列化的配置
     #[serde(skip_serializing, default)]
     pub cn_resign_info: UserResignInfo,
@@ -137,28 +147,6 @@ pub struct BiliConfig {
     pub th_resign_info: UserResignInfo,
 }
 
-#[derive(Serialize, Deserialize, Clone)]
-pub enum BlackListType {
-    OnlyLocalBlackList,
-    OnlyOnlineBlackList(OnlineBlackListConfig),
-    MixedBlackList(OnlineBlackListConfig),
-    NoOnlineBlacklist,
-}
-
-#[derive(Serialize, Deserialize, Clone)]
-pub struct OnlineBlackListConfig {
-    pub api: String,
-    pub api_version: u16, //暂时没用，以后向后兼容的时候会用到
-}
-
-impl std::default::Default for BlackListType {
-    fn default() -> Self {
-        Self::MixedBlackList(OnlineBlackListConfig {
-            api: "https://black.qimo.ink/api/users/".to_string(),
-            api_version: 2,
-        })
-    }
-}
 /// Generic BiliRuntime for passing frequently used `BiliConfig`, `Pool` & `async_channel Sender`
 /// - Initialize at the very beginning of each handler
 /// - also used in background task
@@ -166,17 +154,20 @@ pub struct BiliRuntime<'bili_runtime> {
     pub config: &'bili_runtime BiliConfig,
     pub redis_pool: &'bili_runtime Pool,
     pub channel: &'bili_runtime Arc<Sender<BackgroundTaskType>>,
+    pub access_control: &'bili_runtime AccessControlService,
 }
 impl<'bili_runtime> BiliRuntime<'bili_runtime> {
     pub fn new(
         config: &'bili_runtime BiliConfig,
         redis_pool: &'bili_runtime Pool,
         channel: &'bili_runtime Arc<Sender<BackgroundTaskType>>,
+        access_control: &'bili_runtime AccessControlService,
     ) -> BiliRuntime<'bili_runtime> {
         BiliRuntime {
             config,
             redis_pool,
             channel,
+            access_control,
         }
     }
     // TODO: Easier Config
@@ -528,7 +519,7 @@ impl ClientType {
 }
 
 pub enum ReqType {
-    Playurl(Area, bool),
+    Playurl(Area, bool, bool),
     Search(Area, bool),
     ThSeason,
     ThSubtitle,
@@ -538,8 +529,15 @@ pub enum ReqType {
 impl ReqType {
     pub fn get_api<'config>(&self, config: &'config BiliConfig) -> &'config str {
         match self {
-            ReqType::Playurl(area, is_app) => {
-                if *is_app {
+            ReqType::Playurl(area, is_app, is_tv) => {
+                if *is_tv {
+                    match area {
+                        Area::Cn => &config.cn_tv_playurl_api,
+                        Area::Hk => &config.hk_tv_playurl_api,
+                        Area::Tw => &config.tw_tv_playurl_api,
+                        Area::Th => &config.th_tv_playurl_api,
+                    }
+                } else if *is_app {
                     match area {
                         Area::Cn => &config.cn_app_playurl_api,
                         Area::Hk => &config.hk_app_playurl_api,
@@ -580,7 +578,7 @@ impl ReqType {
     }
     pub fn get_proxy<'config>(&self, config: &'config BiliConfig) -> (bool, &'config str) {
         match self {
-            ReqType::Playurl(area, _) => match area {
+            ReqType::Playurl(area, _, _) => match area {
                 Area::Cn => (config.cn_proxy_playurl_open, &config.cn_proxy_playurl_url),
                 Area::Hk => (config.hk_proxy_playurl_open, &config.hk_proxy_playurl_url),
                 Area::Tw => (config.tw_proxy_playurl_open, &config.tw_proxy_playurl_url),
@@ -607,7 +605,6 @@ pub enum CacheType<'cache_type> {
     EpArea(&'cache_type str),
     EpVipInfo(&'cache_type str),
     UserInfo(&'cache_type str, u64),
-    UserCerInfo(&'cache_type str, u64),
     // UserUniqueInfo(&'cache_type str, u64)
 }
 impl<'cache_type> CacheType<'cache_type> {
@@ -720,18 +717,6 @@ impl<'cache_type> CacheType<'cache_type> {
                 key.push_str(&uid.to_string());
                 key += "20501";
                 keys.push(key);
-            }
-            CacheType::UserCerInfo(access_key, uid) => {
-                let mut key = String::with_capacity(64);
-                key.push_str("a");
-                key.push_str(access_key);
-                key += "20602";
-                keys.push(key);
-                let mut key = String::with_capacity(32);
-                key.push_str("u");
-                key.push_str(&uid.to_string());
-                key += "20602";
-                keys.push(key);
             } // CacheType::UserUniqueInfo(access_key, uid) => {
               //     let mut key = String::with_capacity(64);
               //     key.push_str("a");
@@ -777,30 +762,29 @@ impl<'cache_type> CacheType<'cache_type> {
 //     }
 // }
 
+pub fn json_response(body: String) -> HttpResponse {
+    let business_code = super::audit::business_code_from_body(&body);
+    let mut response = HttpResponse::Ok();
+    response
+        .content_type(ContentType::json())
+        .insert_header(("From", "biliroaming-rust-server"))
+        .insert_header(("Access-Control-Allow-Origin", "https://www.bilibili.com"))
+        .insert_header(("Access-Control-Allow-Credentials", "true"))
+        .insert_header(("Access-Control-Allow-Methods", "GET"));
+    if let Some(code) = business_code {
+        response.insert_header((super::audit::BUSINESS_CODE_HEADER, code.to_string()));
+    }
+    response.body(body)
+}
+
 #[macro_export]
 /// `build_result_response` accept Result<String, EType>
 macro_rules! build_result_response {
     ($resp:ident) => {
-        match $resp {
-            Ok(value) => {
-                return HttpResponse::Ok()
-                    .content_type(ContentType::json())
-                    .insert_header(("From", "biliroaming-rust-server"))
-                    .insert_header(("Access-Control-Allow-Origin", "https://www.bilibili.com"))
-                    .insert_header(("Access-Control-Allow-Credentials", "true"))
-                    .insert_header(("Access-Control-Allow-Methods", "GET"))
-                    .body(value);
-            }
-            Err(value) => {
-                return HttpResponse::Ok()
-                    .content_type(ContentType::json())
-                    .insert_header(("From", "biliroaming-rust-server"))
-                    .insert_header(("Access-Control-Allow-Origin", "https://www.bilibili.com"))
-                    .insert_header(("Access-Control-Allow-Credentials", "true"))
-                    .insert_header(("Access-Control-Allow-Methods", "GET"))
-                    .body(value.to_string());
-            }
-        }
+        return $crate::mods::types::json_response(match $resp {
+            Ok(value) => value,
+            Err(value) => value.to_string(),
+        })
     };
 }
 
@@ -809,45 +793,18 @@ macro_rules! build_result_response {
 macro_rules! build_response {
     // support enum
     ($resp:path) => {
-        return HttpResponse::Ok()
-            .content_type(ContentType::json())
-            .insert_header(("From", "biliroaming-rust-server"))
-            .insert_header(("Access-Control-Allow-Origin", "https://www.bilibili.com"))
-            .insert_header(("Access-Control-Allow-Credentials", "true"))
-            .insert_header(("Access-Control-Allow-Methods", "GET"))
-            .body($resp.to_string())
+        return $crate::mods::types::json_response($resp.to_string())
     };
     // support value.to_string(), etc.
     ($resp:expr) => {
-        return HttpResponse::Ok()
-            .content_type(ContentType::json())
-            .insert_header(("From", "biliroaming-rust-server"))
-            .insert_header(("Access-Control-Allow-Origin", "https://www.bilibili.com"))
-            .insert_header(("Access-Control-Allow-Credentials", "true"))
-            .insert_header(("Access-Control-Allow-Methods", "GET"))
-            .body($resp)
-    };
-    ($resp:ident) => {
-        return HttpResponse::Ok()
-            .content_type(ContentType::json())
-            .insert_header(("From", "biliroaming-rust-server"))
-            .insert_header(("Access-Control-Allow-Origin", "https://www.bilibili.com"))
-            .insert_header(("Access-Control-Allow-Credentials", "true"))
-            .insert_header(("Access-Control-Allow-Methods", "GET"))
-            .body($resp)
+        return $crate::mods::types::json_response($resp.to_string())
     };
     // support like `build_response!(-412, "什么旧版本魔人,升下级");`
     ($err_code:expr, $err_msg:expr) => {
-        return HttpResponse::Ok()
-            .content_type(ContentType::json())
-            .insert_header(("From", "biliroaming-rust-server"))
-            .insert_header(("Access-Control-Allow-Origin", "https://www.bilibili.com"))
-            .insert_header(("Access-Control-Allow-Credentials", "true"))
-            .insert_header(("Access-Control-Allow-Methods", "GET"))
-            .body(format!(
-                "{{\"code\":{},\"message\":\"其他错误: {}\"}}",
-                $err_code, $err_msg
-            ))
+        return $crate::mods::types::json_response(format!(
+            "{{\"code\":{},\"message\":\"其他错误: {}\"}}",
+            $err_code, $err_msg
+        ))
     };
 }
 
@@ -2008,7 +1965,7 @@ impl ReportHealthData {
 * the following is general types
 */
 fn config_version() -> u16 {
-    4
+    5
 }
 
 fn default_false() -> bool {
@@ -2029,6 +1986,18 @@ fn default_api_bilibili_com() -> String {
 
 fn default_app_bilibili_com() -> String {
     "app.bilibili.com".to_string()
+}
+
+fn default_tv_playurl_api() -> String {
+    "https://api.snm0516.aisee.tv/pgc/player/api/playurltv".to_string()
+}
+
+fn default_trusted_proxies() -> Vec<String> {
+    vec!["127.0.0.1".to_string(), "::1".to_string()]
+}
+
+fn default_audit_retention_days() -> u32 {
+    30
 }
 
 pub fn random_string() -> String {
@@ -2068,10 +2037,6 @@ fn default_rate_limit_per_second() -> u64 {
 
 fn default_rate_limit_burst() -> u32 {
     20
-}
-
-fn default_u64() -> u64 {
-    0
 }
 
 fn default_i64() -> i64 {
@@ -2261,27 +2226,6 @@ impl FakeUA {
 /*
 * the following is user related struct & impl
 */
-#[derive(Serialize, Deserialize, Clone)]
-pub struct UserCerinfo {
-    pub uid: u64,
-    pub black: bool,
-    pub white: bool,
-    #[serde(default = "default_u64")]
-    pub ban_until: u64,
-    pub status_expire_time: u64,
-}
-
-impl UserCerinfo {
-    pub fn to_json(&self) -> String {
-        serde_json::to_string(&self).unwrap()
-        // format!(
-        //     "{{\"uid\":{},\"black\":{},\"white\":{},\"status_expire_time\":{}}}",
-        //     self.uid, self.black, self.white, self.status_expire_time
-        // )
-        // .to_string()
-    }
-}
-
 #[derive(Serialize, Deserialize, Clone)]
 pub struct UserInfo {
     #[serde(default = "default_i64")]

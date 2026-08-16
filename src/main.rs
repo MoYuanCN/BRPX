@@ -1,17 +1,22 @@
-use actix_files::Files;
 use actix_governor::{Governor, GovernorConfigBuilder};
 use actix_web::http::header::ContentType;
 use actix_web::{get, middleware, web, App, HttpRequest, HttpResponse, HttpServer, Responder};
 use async_channel::{Receiver, Sender};
+use biliroaming_rust_server::mods::audit::run_worker as run_audit_worker;
 use biliroaming_rust_server::mods::background_tasks::*;
-use biliroaming_rust_server::mods::config::{init_biliconfig, prepare_before_start};
+use biliroaming_rust_server::mods::config::{
+    active_config_path, init_biliconfig, prepare_before_start,
+};
 use biliroaming_rust_server::mods::config::{load_sslconfig, update_biliconfig};
 use biliroaming_rust_server::mods::handler::{
     errorurl_reg, handle_api_access_key_request, handle_api_health_request, handle_playurl_request,
     handle_search_request, handle_th_season_request, handle_th_subtitle_request,
 };
+use biliroaming_rust_server::mods::management::{configure_admin, AppState};
+use biliroaming_rust_server::mods::middleware::audit::AuditTrail;
 use biliroaming_rust_server::mods::middleware::compress::ChangeCompressPriority;
 use biliroaming_rust_server::mods::rate_limit::BiliUserToken;
+use biliroaming_rust_server::mods::storage::Database;
 use biliroaming_rust_server::mods::types::{BackgroundTaskType, BiliConfig, BiliRuntime};
 use deadpool_redis::{Config, Pool, Runtime};
 use futures::join;
@@ -50,9 +55,10 @@ async fn web_default(req: HttpRequest) -> impl Responder {
             .body("{\"code\":-404,\"message\":\"请检查填入的服务器地址是否有效\"}");
     };
     match res_type {
-        1 => handle_playurl_request(&req, true, false).await,
-        2 => handle_playurl_request(&req, false, false).await,
-        3 => handle_playurl_request(&req, true, true).await,
+        1 => handle_playurl_request(&req, true, false, false).await,
+        2 => handle_playurl_request(&req, false, false, false).await,
+        3 => handle_playurl_request(&req, true, true, false).await,
+        9 => handle_playurl_request(&req, true, false, true).await,
         4 => handle_search_request(&req, true, false).await,
         5 => handle_search_request(&req, false, false).await,
         6 => handle_search_request(&req, true, true).await,
@@ -73,9 +79,8 @@ async fn web_default(req: HttpRequest) -> impl Responder {
 
 #[get("/donate")]
 async fn donate(req: HttpRequest) -> impl Responder {
-    let (_, config, _) = req
-        .app_data::<(Pool, BiliConfig, Arc<Sender<BackgroundTaskType>>)>()
-        .unwrap();
+    let state = req.app_data::<web::Data<AppState>>().unwrap();
+    let config = state.config_snapshot();
     return HttpResponse::Found()
         .insert_header(("Location", &config.donate_url[..]))
         .body("");
@@ -83,17 +88,22 @@ async fn donate(req: HttpRequest) -> impl Responder {
 
 #[get("/pgc/player/api/playurl")]
 async fn zhplayurl_app(req: HttpRequest) -> impl Responder {
-    handle_playurl_request(&req, true, false).await
+    handle_playurl_request(&req, true, false, false).await
 }
 
 #[get("/pgc/player/web/playurl")]
 async fn zhplayurl_web(req: HttpRequest) -> impl Responder {
-    handle_playurl_request(&req, false, false).await
+    handle_playurl_request(&req, false, false, false).await
 }
 
 #[get("/intl/gateway/v2/ogv/playurl")]
 async fn thplayurl_app(req: HttpRequest) -> impl Responder {
-    handle_playurl_request(&req, true, true).await
+    handle_playurl_request(&req, true, true, false).await
+}
+
+#[get("/pgc/player/api/playurltv")]
+async fn tvplayurl(req: HttpRequest) -> impl Responder {
+    handle_playurl_request(&req, true, false, true).await
 }
 
 #[get("/x/v2/search/type")]
@@ -227,10 +237,40 @@ fn main() -> std::io::Result<()> {
     let http_port = server_config.http_port.clone();
     let https_port = server_config.https_port.clone();
     let bilisender = Arc::clone(&*BILISENDER);
+    let database = Database::open("data/brpx.db").map_err(std::io::Error::other)?;
+    let (audit, audit_receiver) =
+        biliroaming_rust_server::mods::audit::AuditService::new(database.clone(), 2048);
+    let app_state = AppState::new(
+        server_config.clone(),
+        active_config_path().map_err(std::io::Error::other)?,
+        REDIS_POOL.clone(),
+        bilisender.clone(),
+        database.clone(),
+        audit,
+    );
+    rt.spawn(run_audit_worker(audit_receiver, database));
+    let cleanup_state = app_state.clone();
+    rt.spawn(async move {
+        let mut interval = tokio::time::interval(Duration::from_secs(60 * 60));
+        loop {
+            interval.tick().await;
+            let retention_days = cleanup_state.config_snapshot().audit_retention_days;
+            if let Err(error) = cleanup_state.audit.prune(retention_days) {
+                error!("failed to prune audit events: {error}");
+            }
+        }
+    });
     {
-        let bili_runtime = BiliRuntime::new(&*SERVER_CONFIG, &*REDIS_POOL, &*BILISENDER);
+        let config = app_state.config_snapshot();
+        let bili_runtime = BiliRuntime::new(
+            config.as_ref(),
+            &app_state.redis_pool,
+            &app_state.channel,
+            &app_state.access_control,
+        );
         rt.block_on(prepare_before_start(bili_runtime));
     }
+    let background_state = app_state.clone();
     let web_background = async move {
         let r = &CHANNEL.1;
         loop {
@@ -241,9 +281,16 @@ fn main() -> std::io::Result<()> {
                     break;
                 }
             };
-            let bili_runtime = BiliRuntime::new(&*SERVER_CONFIG, &*REDIS_POOL, &*BILISENDER);
+            let task_state = background_state.clone();
             //println!("[Debug] r:{}",r.len());
             tokio::spawn(async move {
+                let config = task_state.config_snapshot();
+                let bili_runtime = BiliRuntime::new(
+                    config.as_ref(),
+                    &task_state.redis_pool,
+                    &task_state.channel,
+                    &task_state.access_control,
+                );
                 match background_task_run(receive_data, &bili_runtime).await {
                     Ok(_) => (),
                     Err(value) => error!("{value}"),
@@ -288,17 +335,18 @@ fn main() -> std::io::Result<()> {
 
     if use_https && SERVER_CONFIG.http2https_support {
         let web_main = HttpServer::new(move || {
-            let rediscfg = Config::from_url(&server_config.redis);
-            let pool = rediscfg.create_pool(Some(Runtime::Tokio1)).unwrap();
             App::new()
-                .app_data((pool, server_config.clone(), bilisender.clone()))
+                .app_data(web::Data::new(app_state.clone()))
                 .wrap(Governor::new(&rate_limit_conf))
+                .wrap(AuditTrail)
                 .wrap(middleware::Compress::default())
                 .wrap(ChangeCompressPriority)
+                .configure(configure_admin)
                 .service(hello)
                 .service(zhplayurl_app)
                 .service(zhplayurl_web)
                 .service(thplayurl_app)
+                .service(tvplayurl)
                 .service(zhsearch_app)
                 .service(zhsearch_web)
                 .service(thsearch_app)
@@ -307,7 +355,6 @@ fn main() -> std::io::Result<()> {
                 .service(api_accesskey)
                 .service(api_health)
                 .service(donate)
-                .service(Files::new("/", "./web/").index_file("index.html"))
                 .default_service(web::route().to(web_default))
         })
         .bind_rustls_0_23(("0.0.0.0", https_port), ssl_config.unwrap())
@@ -330,17 +377,18 @@ fn main() -> std::io::Result<()> {
         rt.block_on(async { join!(web_background, web_main, http2https).1 })
     } else if use_https {
         let web_main = HttpServer::new(move || {
-            let rediscfg = Config::from_url(&server_config.redis);
-            let pool = rediscfg.create_pool(Some(Runtime::Tokio1)).unwrap();
             App::new()
-                .app_data((pool, server_config.clone(), bilisender.clone()))
+                .app_data(web::Data::new(app_state.clone()))
                 .wrap(Governor::new(&rate_limit_conf))
+                .wrap(AuditTrail)
                 .wrap(middleware::Compress::default())
                 .wrap(ChangeCompressPriority)
+                .configure(configure_admin)
                 .service(hello)
                 .service(zhplayurl_app)
                 .service(zhplayurl_web)
                 .service(thplayurl_app)
+                .service(tvplayurl)
                 .service(zhsearch_app)
                 .service(zhsearch_web)
                 .service(thsearch_app)
@@ -349,7 +397,6 @@ fn main() -> std::io::Result<()> {
                 .service(api_accesskey)
                 .service(api_health)
                 .service(donate)
-                .service(Files::new("/", "./web/").index_file("index.html"))
                 .default_service(web::route().to(web_default))
         })
         .bind_rustls_0_23(("0.0.0.0", https_port), ssl_config.unwrap())
@@ -361,15 +408,18 @@ fn main() -> std::io::Result<()> {
         rt.block_on(async { join!(web_background, web_main).1 })
     } else {
         let web_main = HttpServer::new(move || {
-            let rediscfg = Config::from_url(&server_config.redis);
-            let pool = rediscfg.create_pool(Some(Runtime::Tokio1)).unwrap();
             App::new()
-                .app_data((pool, server_config.clone(), bilisender.clone()))
+                .app_data(web::Data::new(app_state.clone()))
                 .wrap(Governor::new(&rate_limit_conf))
+                .wrap(AuditTrail)
+                .wrap(middleware::Compress::default())
+                .wrap(ChangeCompressPriority)
+                .configure(configure_admin)
                 .service(hello)
                 .service(zhplayurl_app)
                 .service(zhplayurl_web)
                 .service(thplayurl_app)
+                .service(tvplayurl)
                 .service(zhsearch_app)
                 .service(zhsearch_web)
                 .service(thsearch_app)
@@ -378,7 +428,6 @@ fn main() -> std::io::Result<()> {
                 .service(api_accesskey)
                 .service(api_health)
                 .service(donate)
-                .service(Files::new("/", "./web/").index_file("index.html"))
                 .default_service(web::route().to(web_default))
         })
         .bind(("0.0.0.0", http_port))

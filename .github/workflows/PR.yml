@@ -13,8 +13,16 @@ jobs:
 
     steps:
     - name: Check out
-      uses: actions/checkout@v3
+      uses: actions/checkout@v5
       with:
         submodules: 'recursive'
+    - name: Format
+      run: cargo fmt --all -- --check
     - name: Check
-      run: cargo check
+      run: cargo check --locked
+    - name: Test
+      run: cargo test --locked
+    - name: Clippy
+      run: cargo clippy --locked --all-targets
+    - name: Shell scripts
+      run: shellcheck install.sh uninstall.sh

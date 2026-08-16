@@ -199,8 +199,6 @@ pub fn check_ep_available(http_body_json: &serde_json::Value) -> bool {
 /*
 用户信息缓存
 */
-// blacklist info cache
-// redis_set(redis, &key, &return_data.to_json(), 1 * 24 * 60 * 60).await;
 pub async fn get_cached_user_info(
     access_key: &str,
     bili_runtime: &BiliRuntime<'_>,
@@ -234,11 +232,9 @@ pub async fn update_user_info_cache(new_user_info: &UserInfo, bili_runtime: &Bil
     // )
     // .await
     debug!(
-        "[UPDATE_CACHE] UID {} | AK {} -> is VIP: {}. New user_info cache data: {}",
+        "[UPDATE_CACHE] UID {} -> is VIP: {}. User info cache refreshed",
         new_user_info.uid,
-        new_user_info.access_key,
-        new_user_info.is_vip(),
-        value
+        new_user_info.is_vip()
     );
     bili_runtime
         .update_cache(&CacheType::UserInfo(access_key, uid), &value, expire_time)
@@ -263,69 +259,6 @@ pub async fn update_user_info_cache(new_user_info: &UserInfo, bili_runtime: &Bil
             .redis_set("av01301", &new_user_info.access_key, expire_time)
             .await;
     }
-}
-
-pub async fn get_cached_blacklist_info(
-    user_info: &UserInfo,
-    bili_runtime: &BiliRuntime<'_>,
-) -> Option<UserCerinfo> {
-    //turn to ver 02
-    let uid = &user_info.uid;
-    let access_key = &user_info.access_key;
-    let cache_type = CacheType::UserCerInfo(access_key, *uid);
-    if let Some(cached_value) = bili_runtime.get_cache(&cache_type).await {
-        match serde_json::from_str(&cached_value) {
-            Ok(user_cer_info) => {
-                let user_cer_info: UserCerinfo = user_cer_info;
-                debug!(
-                    "[GET_CACHE][UserCerInfo] UID {} | AK {} -> white {} black {} ban_until {}",
-                    user_info.uid,
-                    user_info.access_key,
-                    user_cer_info.white,
-                    user_cer_info.black,
-                    user_cer_info.ban_until
-                );
-                Some(user_cer_info)
-            }
-            Err(_) => None,
-        }
-    } else {
-        None
-    }
-}
-/// `update_blacklist_info_cache` 保存UserCerinfo信息到本地缓存
-pub async fn update_blacklist_info_cache(
-    user_info: &UserInfo,
-    new_user_cer_info: &UserCerinfo,
-    bili_runtime: &BiliRuntime<'_>,
-) {
-    debug!(
-        "[UPDATE_CACHE][UserCerInfo] UID {} | AK {} -> white {} black {} ban_until {}",
-        user_info.uid,
-        user_info.access_key,
-        new_user_cer_info.white,
-        new_user_cer_info.black,
-        new_user_cer_info.ban_until
-    );
-    let value = new_user_cer_info.to_json();
-    let cache_type = CacheType::UserCerInfo(&user_info.access_key, user_info.uid);
-    bili_runtime
-        .update_cache(&cache_type, &value, 1 * 24 * 60 * 60)
-        .await;
-    // bili_runtime
-    //     .redis_set(
-    //         &format!("{}20602", &user_info.uid),
-    //         &value,
-    //         1 * 24 * 60 * 60,
-    //     )
-    //     .await;
-    // bili_runtime
-    //     .redis_set(
-    //         &format!("a{}20602", &user_info.access_key),
-    //         &value,
-    //         1 * 24 * 60 * 60,
-    //     )
-    //     .await;
 }
 
 /*

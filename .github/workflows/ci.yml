@@ -6,13 +6,6 @@ on:
       - '**'
     tags:
       - 'v*.*.*'
-    paths-ignore:
-      - '**.md'
-      - 'LICENSE'
-      - 'config.example.**'
-      - '**.sh'
-      - '**.json'
-      - '**.yml'
   workflow_dispatch:
 
 concurrency:
@@ -21,14 +14,26 @@ concurrency:
 
 jobs:
   check:
-    name: Review the code
+    name: Quality gates
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
         uses: actions/checkout@v5
 
+      - name: Format
+        run: cargo fmt --all -- --check
+
       - name: Check
-        run: cargo check
+        run: cargo check --locked
+
+      - name: Test
+        run: cargo test --locked
+
+      - name: Clippy
+        run: cargo clippy --locked --all-targets
+
+      - name: Shell scripts
+        run: shellcheck install.sh uninstall.sh
 
   build:
     name: Build the binary file
@@ -46,7 +51,7 @@ jobs:
             -v "$HOME/.cargo/git:/root/.cargo/git" \
             -v "$HOME/.cargo/registry:/root/.cargo/registry" \
             registry.gitlab.com/rust_musl_docker/image:stable-latest \
-            sh -lc 'cd /workdir && cargo build --profile=fast -vv --target=x86_64-unknown-linux-musl'
+            sh -lc 'cd /workdir && cargo build --locked --profile=fast -vv --target=x86_64-unknown-linux-musl'
 
       - name: Upload build artifact
         uses: actions/upload-artifact@v4
