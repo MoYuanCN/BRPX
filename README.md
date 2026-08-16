@@ -13,7 +13,7 @@ BRPX 是一个基于 Rust、Actix Web 和 Redis 的自托管哔哩哔哩解析�
 - Web 管理端与版本化配置
 - UID、IP、CIDR、访问令牌指纹允许/拒绝规则
 - 请求审计、筛选、保留期清理和番剧标题异步补全
-- Linux/systemd 一键安装、升级备份和安全卸载
+- Linux/systemd 一键安装、快速更新、升级备份和安全卸载
 
 ## 一键安装
 
@@ -31,6 +31,7 @@ sudo bash /tmp/brpx-install.sh
 3. 安装到 `/opt/brpx`，状态保存到 `/var/lib/brpx`。
 4. 创建并启动 `brpx.service`。
 5. 访问本机 HTTP 端口完成健康检查。
+6. 安装 `/opt/brpx/update.sh`，记录仓库、分支和 commit。
 
 完成后访问：
 
@@ -66,7 +67,7 @@ cargo test --locked
 管理端包含四个工作区：
 
 - 运行概览：服务版本、Redis、请求量、错误、阻断和审计队列。
-- 服务配置：查看、校验、保存全部运行配置，明确提示是否需要重启。
+- 服务配置：按类别可视化编辑全部配置，每项显示用途、效果和生效方式；高级模式可编辑 JSON。
 - 访问规则：管理 UID、IP、CIDR 和访问令牌指纹规则。
 - 请求审计：按 IP、UID、接口、地区和阻断结果筛选请求。
 
@@ -158,9 +159,16 @@ certificates/privkey.pem
 sudo systemctl restart brpx
 ```
 
-## 升级与卸载
+## 更新与卸载
 
-在新版源码目录再次执行 `sudo ./install.sh` 即可升级。安装器会先备份现有二进制、配置和数据库。
+检查并安装远端更新：
+
+```bash
+sudo /opt/brpx/update.sh --check
+sudo /opt/brpx/update.sh
+```
+
+更新器读取安装时记录的仓库和分支；发现新 commit 后下载源码，并复用安装器完成编译、停服备份、替换和健康检查。也可在新版源码目录再次执行 `sudo ./install.sh`。
 
 默认卸载并保留数据：
 
@@ -183,7 +191,7 @@ cargo fmt --all -- --check
 cargo check --locked
 cargo test --locked
 cargo clippy --locked --all-targets
-shellcheck install.sh uninstall.sh
+shellcheck install.sh update.sh uninstall.sh
 ```
 
 仓库开发规则见 [AGENTS.md](AGENTS.md)。`Cargo.lock` 必须提交，以保证应用构建可复现。

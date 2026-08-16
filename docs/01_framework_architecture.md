@@ -60,7 +60,7 @@ Browser ----> /admin/ ----> management API ----> config / rules / audit
 BRPX/
 |-- Cargo.toml / Cargo.lock       Rust 构建和锁定依赖
 |-- config.example.json|yml       v5 配置范本
-|-- install.sh / uninstall.sh     Linux/systemd 生命周期
+|-- install.sh / update.sh / uninstall.sh  Linux/systemd 生命周期
 |-- src/
 |   |-- main.rs                   进程入口、路由和 Worker
 |   |-- lib.rs / mods.rs          库入口与模块清单

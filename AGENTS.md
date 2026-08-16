@@ -12,9 +12,9 @@ This repository contains the BRPX Rust server, its embedded admin UI, Linux life
 - `src/mods/audit.rs`: sanitized audit queue, persistence, queries, episode enrichment.
 - `src/mods/handler.rs`: public parsing API handlers and request context updates.
 - `src/mods/upstream_res.rs`: Bilibili upstream requests and response normalization.
-- `src/html/admin.html`: embedded admin application; it has no separate build step.
+- `src/html/admin.html`, `config-editor.js`, and `config-schema.json`: embedded admin application and visual configuration metadata; they have no separate build step.
 - `config.example.json` and `config.example.yml`: canonical versioned examples.
-- `install.sh` and `uninstall.sh`: Linux/systemd lifecycle scripts.
+- `install.sh`, `update.sh`, and `uninstall.sh`: Linux/systemd lifecycle scripts.
 - `docs/`: operator documentation.
 
 ## Required Commands
@@ -31,8 +31,8 @@ cargo clippy --locked --all-targets
 For shell changes, also run:
 
 ```bash
-shellcheck install.sh uninstall.sh
-bash -n install.sh uninstall.sh
+shellcheck install.sh update.sh uninstall.sh
+bash -n install.sh update.sh uninstall.sh
 ```
 
 ## Configuration Rules
@@ -43,6 +43,7 @@ bash -n install.sh uninstall.sh
 - Migrations must preserve valid current fields, validate the result, and be covered by tests.
 - Mark listener, worker, Redis, TLS, and rate-limit changes as restart-required.
 - Never expose stored secret values through the management API. Keep the `********` round-trip behavior tested.
+- Keep every serialized `BiliConfig` field represented in `config-schema.json` with a label, purpose, and effect.
 
 ## Security Rules
 

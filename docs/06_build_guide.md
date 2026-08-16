@@ -47,8 +47,8 @@ cargo fmt --all -- --check
 cargo check --locked
 cargo test --locked
 cargo clippy --locked --all-targets
-shellcheck install.sh uninstall.sh
-bash -n install.sh uninstall.sh
+shellcheck install.sh update.sh uninstall.sh
+bash -n install.sh update.sh uninstall.sh
 ```
 
 当前旧代码仍有较多 Clippy 风格告警，因此 CI 不使用 `-D warnings`；新增模块不应增加告警。

@@ -87,7 +87,8 @@ ensure_rust() {
 prepare_source() {
     if [[ -f "${SCRIPT_DIR}/Cargo.toml" \
         && -f "${SCRIPT_DIR}/config.example.json" \
-        && -f "${SCRIPT_DIR}/uninstall.sh" ]]; then
+        && -f "${SCRIPT_DIR}/uninstall.sh" \
+        && -f "${SCRIPT_DIR}/update.sh" ]]; then
         printf '%s\n' "${SCRIPT_DIR}"
         return
     fi
@@ -137,6 +138,7 @@ install_files() {
         "${STATE_DIR}" "${STATE_DIR}/data" "${STATE_DIR}/backups" "${STATE_DIR}/certificates"
     install -o root -g root -m 0755 "${binary_path}" "${INSTALL_DIR}/brpx"
     install -o root -g root -m 0755 "${source_dir}/uninstall.sh" "${INSTALL_DIR}/uninstall.sh"
+    install -o root -g root -m 0755 "${source_dir}/update.sh" "${INSTALL_DIR}/update.sh"
     if [[ ! -f "${STATE_DIR}/config.json" ]]; then
         install -o "${SERVICE_USER}" -g "${SERVICE_USER}" -m 0640 \
             "${source_dir}/config.example.json" "${STATE_DIR}/config.json"
@@ -144,10 +146,21 @@ install_files() {
     cat >"${STATE_DIR}/install-manifest" <<EOF
 ${INSTALL_DIR}/brpx
 ${INSTALL_DIR}/uninstall.sh
+${INSTALL_DIR}/update.sh
 ${UNIT_PATH}
 EOF
     chown "${SERVICE_USER}:${SERVICE_USER}" "${STATE_DIR}/install-manifest"
     chmod 0640 "${STATE_DIR}/install-manifest"
+    local source_commit recorded_repository
+    source_commit="$(git -C "${source_dir}" rev-parse HEAD 2>/dev/null || printf 'unknown')"
+    recorded_repository="$(printf '%s' "${REPOSITORY}" | sed -E 's#(https?://)[^/@]+@#\1#')"
+    cat >"${STATE_DIR}/install-source" <<EOF
+repository=${recorded_repository}
+ref=${SOURCE_REF}
+commit=${source_commit}
+EOF
+    chown "${SERVICE_USER}:${SERVICE_USER}" "${STATE_DIR}/install-source"
+    chmod 0640 "${STATE_DIR}/install-source"
 }
 
 install_service() {
@@ -200,6 +213,7 @@ verify_installation() {
     fi
     log "安装完成"
     log "管理地址: http://服务器IP:${port}/admin/"
+    log "更新命令: sudo ${INSTALL_DIR}/update.sh"
     log "卸载命令: sudo ${INSTALL_DIR}/uninstall.sh"
 }
 

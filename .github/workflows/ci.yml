@@ -33,7 +33,9 @@ jobs:
         run: cargo clippy --locked --all-targets
 
       - name: Shell scripts
-        run: shellcheck install.sh uninstall.sh
+        run: |
+          shellcheck install.sh update.sh uninstall.sh
+          bash -n install.sh update.sh uninstall.sh
 
   build:
     name: Build the binary file

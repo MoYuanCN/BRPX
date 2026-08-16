@@ -47,7 +47,7 @@ rm -f -- "${UNIT_PATH}"
 systemctl daemon-reload
 systemctl reset-failed "${SERVICE_NAME}.service" 2>/dev/null || true
 
-rm -f -- "${INSTALL_DIR}/brpx" "${INSTALL_DIR}/uninstall.sh"
+rm -f -- "${INSTALL_DIR}/brpx" "${INSTALL_DIR}/update.sh" "${INSTALL_DIR}/uninstall.sh"
 rmdir -- "${INSTALL_DIR}" 2>/dev/null || true
 
 if [[ "${PURGE}" -eq 1 ]]; then

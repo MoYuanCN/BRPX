@@ -124,7 +124,7 @@ UI 没有构建步骤：使用现有 CSS 变量、5-6px 圆角、Lucide 图标�
 - 规则覆盖优先级、scope、过期和规范化。
 - 受保护的管理修改覆盖未登录与缺 CSRF，初始化/登录覆盖各自的公开边界。
 - 审计覆盖业务码、筛选、保留期和队列失败。
-- Shell 改动通过 ShellCheck 和 `bash -n`。
+- Shell 改动对 `install.sh`、`update.sh` 和 `uninstall.sh` 通过 ShellCheck 与 `bash -n`。
 - 浏览器检查控制台、桌面和移动布局。
 
 完成后运行 `AGENTS.md` 的全部命令，并用 Conventional Commit 按职责提交。
