@@ -60,7 +60,7 @@ pub async fn async_getwebpage(
         return Err(EType::ServerReqError("Client request failed Step 2"));
     };
     debug!(
-        "[GET WEBPAGE] PROXY {proxy_open} | {proxy_url} -> STATUS CODE: {}",
+        "[GET WEBPAGE] PROXY {proxy_open} -> STATUS CODE: {}",
         rsp_raw_data.status().as_u16()
     );
     match rsp_raw_data.status().as_u16() {
@@ -77,7 +77,6 @@ pub async fn async_getwebpage(
     } else {
         return Err(EType::ServerReqError("Client request failed Step 4"));
     };
-    debug!("[GET WEBPAGE] URL {}", url);
     Ok(UpstreamRawResp::new(rsp_headers, rsp_body))
 }
 
@@ -127,7 +126,7 @@ pub async fn async_postwebpage(
         return Err(EType::ServerReqError("Client request failed Step 2"));
     };
     debug!(
-        "[POST WEBPAGE] PROXY {proxy_open} | {proxy_url} -> STATUS CODE: {}",
+        "[POST WEBPAGE] PROXY {proxy_open} -> STATUS CODE: {}",
         rsp_raw_data.status().as_u16()
     );
     match rsp_raw_data.status().as_u16() {

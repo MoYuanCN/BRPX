@@ -725,39 +725,40 @@ pub async fn get_upstream_bili_playurl(
     }
 
     // finish generating req params
-    let upstream_raw_resp = match async_getwebpage(
-        &signed_url,
-        proxy_open,
-        proxy_url,
-        params.user_agent,
-        "",
-        Some(headers),
-    )
-    .await
-    {
-        Ok(data) => data,
-        Err(value) => {
-            error!(
-                "[GET PLAYURL][U] AREA {} | EP {} | PROXY_OPEN {} | PROXY_URL {} -> 获取播放链接失败: 网络问题",
-                params.area.to_ascii_uppercase(), params.ep_id, proxy_open, proxy_url
+    let upstream_raw_resp =
+        match async_getwebpage(
+            &signed_url,
+            proxy_open,
+            proxy_url,
+            params.user_agent,
+            "",
+            Some(headers),
+        )
+        .await
+        {
+            Ok(data) => data,
+            Err(value) => {
+                error!(
+                "[GET PLAYURL][U] AREA {} | EP {} | PROXY_OPEN {} -> 获取播放链接失败: 网络问题",
+                params.area.to_ascii_uppercase(), params.ep_id, proxy_open
             );
-            report_health(
-                HealthReportType::Playurl(HealthData::init(
-                    Area::new(params.area_num),
-                    false,
-                    UpstreamReply {
-                        proxy_open,
-                        proxy_url: String::from(proxy_url),
-                        ..Default::default()
-                    },
-                    params.ep_id,
-                )),
-                bili_runtime,
-            )
-            .await;
-            return Err(value);
-        }
-    };
+                report_health(
+                    HealthReportType::Playurl(HealthData::init(
+                        Area::new(params.area_num),
+                        false,
+                        UpstreamReply {
+                            proxy_open,
+                            proxy_url: String::from(proxy_url),
+                            ..Default::default()
+                        },
+                        params.ep_id,
+                    )),
+                    bili_runtime,
+                )
+                .await;
+                return Err(value);
+            }
+        };
     let mut upstream_raw_resp_json: serde_json::Value = match upstream_raw_resp.json() {
         Some(value) => value,
         None => {
@@ -1027,8 +1028,8 @@ pub async fn get_upstream_bili_playurl_background(
         Ok(data) => data,
         Err(value) => {
             error!(
-                "[GET PLAYURL BACKGROUND][U] AREA {} | EP {} | PROXY_OPEN {} | PROXY_URL {} -> 获取播放链接失败: 网络问题",
-                params.area.to_ascii_uppercase(), params.ep_id, proxy_open, proxy_url
+                "[GET PLAYURL BACKGROUND][U] AREA {} | EP {} | PROXY_OPEN {} -> 获取播放链接失败: 网络问题",
+                params.area.to_ascii_uppercase(), params.ep_id, proxy_open
             );
             report_health(
                 HealthReportType::Playurl(HealthData::init(
@@ -1162,18 +1163,18 @@ pub async fn get_upstream_bili_search(
                 Ok(data_json)
             } else {
                 error!(
-                    "[GET SEARCH][U] AREA {} | PROXY_OPEN {} | PROXY_URL {} ->  Upstream ERROR {upstream_code}: {data_json}",
-                    params.area.to_ascii_uppercase(), proxy_open, proxy_url
+                    "[GET SEARCH][U] AREA {} | PROXY_OPEN {} -> Upstream ERROR {upstream_code}",
+                    params.area.to_ascii_uppercase(),
+                    proxy_open
                 );
                 Err(EType::ServerReqError("上游错误"))
             }
         }
         Err(_) => {
             error!(
-                "[GET SEARCH][U] AREA {} | PROXY_OPEN {} | PROXY_URL {} ->  Upstream ERROR: 网络问题",
+                "[GET SEARCH][U] AREA {} | PROXY_OPEN {} -> Upstream ERROR: 网络问题",
                 params.area.to_ascii_uppercase(),
-                proxy_open,
-                proxy_url
+                proxy_open
             );
             report_health(
                 HealthReportType::Search(HealthData::init(
@@ -1391,8 +1392,8 @@ pub async fn get_upstream_bili_subtitle(
         Err(value) => {
             // not intented to report_health
             error!(
-                "[GET TH_SUBTITLE][U] AREA TH | PROXY_OPEN {} | PROXY_URL {} -> Upstream ERROR: 网络问题",
-                proxy_open, proxy_url
+                "[GET TH_SUBTITLE][U] AREA TH | PROXY_OPEN {} -> Upstream ERROR: 网络问题",
+                proxy_open
             );
             Err(value)
         }
@@ -1613,8 +1614,8 @@ pub async fn get_upstream_bili_season(
         }
         Err(value) => {
             error!(
-                "[GET TH_SEASON][U] AREA TH | PROXY_OPEN {} | PROXY_URL {} -> Upstream ERROR: 网络问题",
-                proxy_open, proxy_url
+                "[GET TH_SEASON][U] AREA TH | PROXY_OPEN {} -> Upstream ERROR: 网络问题",
+                proxy_open
             );
             report_health(
                 HealthReportType::ThSeason(HealthData::init(

@@ -75,7 +75,7 @@ pub async fn update_cached_user_info_background(
     access_key: String,
     bili_runtime: &BiliRuntime<'_>,
 ) {
-    trace!("[BACKGROUND TASK] AK {access_key} -> Accept UserInfo Cache Refresh Task...");
+    trace!("[BACKGROUND TASK] Accept UserInfo Cache Refresh Task...");
     let background_task_data =
         BackgroundTaskType::Cache(CacheTask::UserInfoCacheRefresh(access_key));
     bili_runtime.send_task(background_task_data).await
@@ -375,22 +375,22 @@ pub async fn background_task_run(
                                     }
                                     -404 => {
                                         // 东南亚区贼恶心...
-                                        info!("[BACKGROUND TASK] EP {ep_id} | PROXY_OPEN {proxy_open} | PROXY_URL {proxy_url} -> Check EP available zone -404: maybe zone th");
+                                        info!("[BACKGROUND TASK] EP {ep_id} | PROXY_OPEN {proxy_open} -> Check EP available zone -404: maybe zone th");
                                         ep_area_data[(area_num - 1) as usize] = "1";
                                         ep_area_data[3 as usize] = "0";
                                     }
                                     -2333 => {
-                                        error!("[BACKGROUND TASK] EP {ep_id} | PROXY_OPEN {proxy_open} | PROXY_URL {proxy_url} -> Check EP available zone failed: Json Parsing Error: {value}");
+                                        error!("[BACKGROUND TASK] EP {ep_id} | PROXY_OPEN {proxy_open} -> Check EP available zone failed: Json Parsing Error");
                                         continue;
                                     }
                                     _ => {
                                         ep_area_data[(area_num - 1) as usize] = "1";
-                                        error!("[BACKGROUND TASK] EP {ep_id} | PROXY_OPEN {proxy_open} | PROXY_URL {proxy_url} -> Check EP available zone failed: Unknown Error Code {code}: {value}");
+                                        error!("[BACKGROUND TASK] EP {ep_id} | PROXY_OPEN {proxy_open} -> Check EP available zone failed: Unknown Error Code {code}");
                                         continue;
                                     }
                                 }
                             }
-                            Err(_) => error!("[BACKGROUND TASK] EP {ep_id} | PROXY_OPEN {proxy_open} | PROXY_URL {proxy_url} -> Check EP available zone failed: Network Error"),
+                            Err(_) => error!("[BACKGROUND TASK] EP {ep_id} | PROXY_OPEN {proxy_open} -> Check EP available zone failed: Network Error"),
                         }
                 }
                 let ep_area_data = ep_area_data.concat();

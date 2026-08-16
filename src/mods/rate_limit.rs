@@ -1,5 +1,6 @@
+use super::management::AppState;
 use actix_governor::{KeyExtractor, SimpleKeyExtractionError};
-use actix_web::{dev::ServiceRequest, http::header::ContentType};
+use actix_web::{dev::ServiceRequest, http::header::ContentType, web};
 // use governor::clock::{Clock, DefaultClock};
 use qstring::QString;
 use serde::{Deserialize, Serialize};
@@ -12,14 +13,15 @@ impl KeyExtractor for BiliUserToken {
     type KeyExtractionError = SimpleKeyExtractionError<&'static str>;
 
     fn extract(&self, req: &ServiceRequest) -> Result<Self::Key, Self::KeyExtractionError> {
-        let key = match QString::from(req.query_string()).get("access_key") {
-            Option::Some(key) => key.to_string(),
-            _ => match req.headers().get("X-Real-IP") {
-                Some(value) => value.to_str().unwrap().to_owned(),
-                None => format!("{:?}", req.peer_addr()),
-            },
-            //req.headers().get("X-Real-IP").unwrap().to_str().unwrap().to_owned(),
-        };
+        let key = QString::from(req.query_string())
+            .get("access_key")
+            .map(str::to_owned)
+            .unwrap_or_else(|| {
+                req.app_data::<web::Data<AppState>>()
+                    .map(|state| state.resolve_client_ip(req.request()).to_string())
+                    .or_else(|| req.peer_addr().map(|address| address.ip().to_string()))
+                    .unwrap_or_else(|| "unknown".to_owned())
+            });
         Ok(key)
     }
 
