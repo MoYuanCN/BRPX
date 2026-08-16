@@ -74,7 +74,7 @@ pub async fn get_ep_area_limit(ep_id: &str, area: Area, bili_runtime: &BiliRunti
             return false;
         };
         let config = bili_runtime.config;
-        let req_type = ReqType::Playurl(area, true);
+        let req_type = ReqType::Playurl(area, true, false);
         let url = format!("{bili_user_status_api}?access_key={access_key}&ep_id={ep_id}");
         let (proxy_open, proxy_url) = req_type.get_proxy(config);
         match async_getwebpage(&url, proxy_open, proxy_url, user_agent, "", None).await {

@@ -1,12 +1,13 @@
+use super::audit::update_context;
 use super::cache::{
     get_cached_ep_area, get_cached_playurl, get_cached_th_season, get_cached_th_subtitle,
 };
 use super::health::report_health;
+use super::management::AppState;
 use super::tools::normalize_th_search_season_uris;
 use super::types::{
-    random_string, Area, BackgroundTaskType, BiliConfig, BiliRuntime, ClientType, EType,
-    HealthData, HealthReportType, PlayurlParams, RuntimeHealthKey, SearchParams,
-    RUNTIME_HEALTH_STORE,
+    random_string, Area, BiliConfig, BiliRuntime, ClientType, EType, HealthData, HealthReportType,
+    PlayurlParams, RuntimeHealthKey, SearchParams, RUNTIME_HEALTH_STORE,
 };
 use super::upstream_res::{
     get_upstream_bili_playurl, get_upstream_bili_search, get_upstream_bili_season,
@@ -14,36 +15,38 @@ use super::upstream_res::{
 };
 use super::user_info::*;
 use crate::{build_response, build_result_response, calc_md5};
-use actix_web::http::header::ContentType;
-use actix_web::{HttpRequest, HttpResponse};
-use async_channel::Sender;
+use actix_web::{web, HttpRequest, HttpResponse};
 use crypto::digest::Digest;
 use crypto::md5::Md5;
-use deadpool_redis::Pool;
 use log::{debug, error, warn};
-use pcre2::bytes::Regex;
 use qstring::QString;
 use serde_json::{self, json};
-use std::sync::Arc;
 
 // playurl分流
-pub async fn handle_playurl_request(req: &HttpRequest, is_app: bool, is_th: bool) -> HttpResponse {
-    let (redis_pool, config, bilisender) = req
-        .app_data::<(Pool, BiliConfig, Arc<Sender<BackgroundTaskType>>)>()
-        .unwrap();
-    let bili_runtime = BiliRuntime::new(config, redis_pool, bilisender);
+pub async fn handle_playurl_request(
+    req: &HttpRequest,
+    is_app: bool,
+    is_th: bool,
+    is_tv_route: bool,
+) -> HttpResponse {
+    let state = req.app_data::<web::Data<AppState>>().unwrap();
+    let config = state.config_snapshot();
+    let bili_runtime = BiliRuntime::new(
+        config.as_ref(),
+        &state.redis_pool,
+        &state.channel,
+        &state.access_control,
+    );
     let query_string = req.query_string();
     let query = QString::from(query_string);
     let mut params = PlayurlParams {
         is_app,
         is_th,
+        is_tv: is_tv_route,
         ..Default::default()
     };
     // detect client ip for log
-    let client_ip: String = match req.headers().get("X-Real-IP") {
-        Some(value) => value.to_str().unwrap().to_owned(),
-        None => format!("{:?}", req.peer_addr()),
-    };
+    let client_ip = state.resolve_client_ip(req).to_string();
 
     // detect req area
     (params.area, params.area_num) = match query.get("area") {
@@ -136,7 +139,7 @@ pub async fn handle_playurl_request(req: &HttpRequest, is_app: bool, is_th: bool
     params.access_key = match query.get("access_key") {
         Some(key) => {
             if key.len() < 32 {
-                error!("[GET PLAYURL] IP {client_ip} -> Detect req with invalid access_key {key}");
+                error!("[GET PLAYURL] IP {client_ip} -> Detect req with invalid access_key");
                 build_response!(EType::UserNotLoginedError);
             } else {
                 key.split_at(32).0
@@ -177,13 +180,9 @@ pub async fn handle_playurl_request(req: &HttpRequest, is_app: bool, is_th: bool
         .get("platform")
         .unwrap_or(client_type.mobi_app().unwrap_or(""));
 
-    params.is_tv = match query.get("fnval") {
-        Some(value) => match value {
-            "130" | "0" | "2" => true,
-            _ => false,
-        },
-        None => false,
-    };
+    if !is_tv_route {
+        params.is_tv = matches!(query.get("fnval"), Some("130" | "0" | "2"));
+    }
     // detect client accesskey type
     let client_ak_type = if let Some(value) =
         ClientType::init_for_ak(params.appkey, params.is_app, params.is_th, req)
@@ -216,11 +215,35 @@ pub async fn handle_playurl_request(req: &HttpRequest, is_app: bool, is_th: bool
         user_info.is_vip()
     };
 
-    // get user's blacklist info
-    let white = match get_blacklist_info(&user_info, &bili_runtime).await {
+    let access_decision = match state.access_control.evaluate(
+        state.resolve_client_ip(req).into(),
+        Some(user_info.uid),
+        Some(params.access_key),
+        if is_tv_route { "tv" } else { "playurl" },
+    ) {
         Ok(value) => value,
-        Err(value) => build_response!(value),
+        Err(_) => build_response!(EType::ServerGeneral),
     };
+    update_context(req, |event| {
+        event.uid = Some(user_info.uid);
+        event.area = params.area.to_string();
+        event.client_type = if is_tv_route {
+            "tv"
+        } else if is_app {
+            "app"
+        } else {
+            "web"
+        }
+        .to_string();
+        event.ep_id = params.ep_id.parse().ok();
+        event.blocked = access_decision.denied;
+        event.matched_rule_id = access_decision.rule_id;
+    });
+    if access_decision.denied {
+        let error = EType::UserBlacklistedError(access_decision.expires_at.unwrap_or(0));
+        build_response!(error);
+    }
+    let white = access_decision.allowed;
 
     // resign if needed
     let resigned_access_key;
@@ -229,11 +252,10 @@ pub async fn handle_playurl_request(req: &HttpRequest, is_app: bool, is_th: bool
             if let Some(value) = value {
                 (params.is_vip, resigned_access_key) = (value.0, value.1);
                 debug!(
-                    "[GET PLAYURL] IP {client_ip} | UID {} | AREA {} | EP {} -> Use Resigned UserInfo: AK {} isVIP {}",
+                    "[GET PLAYURL] IP {client_ip} | UID {} | AREA {} | EP {} -> Use resigned user info; isVIP {}",
                     user_info.uid,
                     params.area.to_ascii_uppercase(),
                     params.ep_id,
-                    &resigned_access_key,
                     params.is_vip
                 );
                 params.access_key = &resigned_access_key;
@@ -276,7 +298,7 @@ pub async fn handle_playurl_request(req: &HttpRequest, is_app: bool, is_th: bool
         params.area.to_ascii_uppercase(),
         params.ep_id
     );
-    let resp = match get_cached_playurl(&params, &bili_runtime).await {
+    let (resp, cache_hit) = match get_cached_playurl(&params, &bili_runtime).await {
         // 允许-999时用户获取缓存, 但不是VIP
         Ok(data) => {
             debug!(
@@ -285,18 +307,37 @@ pub async fn handle_playurl_request(req: &HttpRequest, is_app: bool, is_th: bool
                 params.area.to_ascii_uppercase(),
                 params.ep_id
             );
-            Ok(data)
+            (Ok(data), true)
         }
-        Err(_) => get_upstream_bili_playurl(&mut params, &user_info, &bili_runtime).await,
+        Err(_) => (
+            get_upstream_bili_playurl(&mut params, &user_info, &bili_runtime).await,
+            false,
+        ),
     };
+    update_context(req, |event| {
+        event.cache_hit = Some(cache_hit);
+        event.business_code = Some(if resp.is_ok() { 0 } else { -500 });
+        event.upstream = if cache_hit {
+            "cache"
+        } else if is_tv_route {
+            "tv"
+        } else {
+            "bilibili"
+        }
+        .to_string();
+    });
     build_result_response!(resp);
 }
 
 pub async fn handle_search_request(req: &HttpRequest, is_app: bool, is_th: bool) -> HttpResponse {
-    let (redis_pool, config, bilisender) = req
-        .app_data::<(Pool, BiliConfig, Arc<Sender<BackgroundTaskType>>)>()
-        .unwrap();
-    let bili_runtime = BiliRuntime::new(config, redis_pool, bilisender);
+    let state = req.app_data::<web::Data<AppState>>().unwrap();
+    let config = state.config_snapshot();
+    let bili_runtime = BiliRuntime::new(
+        config.as_ref(),
+        &state.redis_pool,
+        &state.channel,
+        &state.access_control,
+    );
     let query_string = req.query_string();
     let query = QString::from(query_string);
     let mut params = SearchParams {
@@ -305,10 +346,7 @@ pub async fn handle_search_request(req: &HttpRequest, is_app: bool, is_th: bool)
         ..Default::default()
     };
     // detect client ip for log
-    let client_ip: String = match req.headers().get("X-Real-IP") {
-        Some(value) => value.to_str().unwrap().to_owned(),
-        None => format!("{:?}", req.peer_addr()),
-    };
+    let client_ip = state.resolve_client_ip(req).to_string();
 
     // detect req area
     (params.area, params.area_num) = match query.get("area") {
@@ -412,7 +450,7 @@ pub async fn handle_search_request(req: &HttpRequest, is_app: bool, is_th: bool)
     params.access_key = match query.get("access_key") {
         Some(key) => {
             if key.len() < 32 {
-                error!("[GET SEARCH] IP {client_ip} -> Detect req with invalid access_key {key}");
+                error!("[GET SEARCH] IP {client_ip} -> Detect req with invalid access_key");
                 build_response!(EType::UserNotLoginedError);
             } else {
                 key.split_at(32).0
@@ -485,8 +523,7 @@ pub async fn handle_search_request(req: &HttpRequest, is_app: bool, is_th: bool)
         }
     };
 
-    //为了记录accesskey to uid
-    let uid = if is_app && (!is_th) {
+    let uid = if is_app && !is_th {
         match get_user_info(
             params.access_key,
             params.appkey,
@@ -496,17 +533,40 @@ pub async fn handle_search_request(req: &HttpRequest, is_app: bool, is_th: bool)
         )
         .await
         {
-            Ok(value) => {
-                get_blacklist_info(&value, &bili_runtime)
-                    .await
-                    .unwrap_or(false);
-                value.uid
-            }
-            Err(_) => 0, // allow blacklist user to search
+            Ok(value) => value.uid,
+            Err(_) => 0,
         }
     } else {
         0
     };
+    let access_decision = match state.access_control.evaluate(
+        state.resolve_client_ip(req).into(),
+        (uid != 0).then_some(uid),
+        (!params.access_key.is_empty()).then_some(params.access_key),
+        "search",
+    ) {
+        Ok(value) => value,
+        Err(_) => build_response!(EType::ServerGeneral),
+    };
+    update_context(req, |event| {
+        event.uid = (uid != 0).then_some(uid);
+        event.area = params.area.to_string();
+        event.client_type = if is_th {
+            "th"
+        } else if is_app {
+            "app"
+        } else {
+            "web"
+        }
+        .to_string();
+        event.blocked = access_decision.denied;
+        event.matched_rule_id = access_decision.rule_id;
+        event.upstream = "bilibili".to_string();
+    });
+    if access_decision.denied {
+        let error = EType::UserBlacklistedError(access_decision.expires_at.unwrap_or(0));
+        build_response!(error);
+    }
 
     let host = match req.headers().get("Host") {
         Some(host) => host.to_str().unwrap(),
@@ -595,10 +655,14 @@ pub async fn handle_th_season_request(
     _is_app: bool,
     _is_th: bool,
 ) -> HttpResponse {
-    let (redis_pool, config, bilisender) = req
-        .app_data::<(Pool, BiliConfig, Arc<Sender<BackgroundTaskType>>)>()
-        .unwrap();
-    let bili_runtime = BiliRuntime::new(config, redis_pool, bilisender);
+    let state = req.app_data::<web::Data<AppState>>().unwrap();
+    let config = state.config_snapshot();
+    let bili_runtime = BiliRuntime::new(
+        config.as_ref(),
+        &state.redis_pool,
+        &state.channel,
+        &state.access_control,
+    );
     let query_string = req.query_string();
     let query = QString::from(query_string);
     let mut params = PlayurlParams {
@@ -607,10 +671,7 @@ pub async fn handle_th_season_request(
         ..Default::default()
     };
     // detect client ip for log
-    let client_ip: String = match req.headers().get("X-Real-IP") {
-        Some(value) => value.to_str().unwrap().to_owned(),
-        None => format!("{:?}", req.peer_addr()),
-    };
+    let client_ip = state.resolve_client_ip(req).to_string();
 
     // detect req UA
     params.user_agent = match req.headers().get("user-agent") {
@@ -625,9 +686,7 @@ pub async fn handle_th_season_request(
     params.access_key = match query.get("access_key") {
         Some(key) => {
             if key.len() < 32 {
-                error!(
-                    "[GET TH SEASON] IP {client_ip} -> Detect req with invalid access_key {key}"
-                );
+                error!("[GET TH SEASON] IP {client_ip} -> Detect req with invalid access_key");
                 build_response!(EType::UserNotLoginedError);
             } else {
                 key.split_at(32).0
@@ -637,6 +696,25 @@ pub async fn handle_th_season_request(
             build_response!(EType::UserNotLoginedError);
         }
     };
+    let access_decision = match state.access_control.evaluate(
+        state.resolve_client_ip(req).into(),
+        None,
+        Some(params.access_key),
+        "season",
+    ) {
+        Ok(value) => value,
+        Err(_) => build_response!(EType::ServerGeneral),
+    };
+    update_context(req, |event| {
+        event.area = "th".to_string();
+        event.client_type = "th".to_string();
+        event.blocked = access_decision.denied;
+        event.matched_rule_id = access_decision.rule_id;
+    });
+    if access_decision.denied {
+        let error = EType::UserBlacklistedError(access_decision.expires_at.unwrap_or(0));
+        build_response!(error);
+    }
     // init th appkey & appsec
     params.appkey_to_sec().unwrap();
 
@@ -689,10 +767,14 @@ pub async fn handle_th_season_request(
 }
 
 pub async fn handle_th_subtitle_request(req: &HttpRequest, _: bool, _: bool) -> HttpResponse {
-    let (redis_pool, config, bilisender) = req
-        .app_data::<(Pool, BiliConfig, Arc<Sender<BackgroundTaskType>>)>()
-        .unwrap();
-    let bili_runtime = BiliRuntime::new(config, redis_pool, bilisender);
+    let state = req.app_data::<web::Data<AppState>>().unwrap();
+    let config = state.config_snapshot();
+    let bili_runtime = BiliRuntime::new(
+        config.as_ref(),
+        &state.redis_pool,
+        &state.channel,
+        &state.access_control,
+    );
     let query_string = req.query_string();
     let query = QString::from(query_string);
     let mut params = PlayurlParams {
@@ -700,10 +782,26 @@ pub async fn handle_th_subtitle_request(req: &HttpRequest, _: bool, _: bool) -> 
     };
     params.init_params(Area::Th);
     // detect client ip for log
-    let client_ip: String = match req.headers().get("X-Real-IP") {
-        Some(value) => value.to_str().unwrap().to_owned(),
-        None => format!("{:?}", req.peer_addr()),
+    let client_ip = state.resolve_client_ip(req).to_string();
+    let access_decision = match state.access_control.evaluate(
+        state.resolve_client_ip(req).into(),
+        None,
+        None,
+        "subtitle",
+    ) {
+        Ok(value) => value,
+        Err(_) => build_response!(EType::ServerGeneral),
     };
+    update_context(req, |event| {
+        event.area = "th".to_string();
+        event.client_type = "th".to_string();
+        event.blocked = access_decision.denied;
+        event.matched_rule_id = access_decision.rule_id;
+    });
+    if access_decision.denied {
+        let error = EType::UserBlacklistedError(access_decision.expires_at.unwrap_or(0));
+        build_response!(error);
+    }
 
     // detect req UA
     params.user_agent = match req.headers().get("user-agent") {
@@ -751,12 +849,33 @@ fn is_api_accesskey_open(config: &BiliConfig, area_num: u8) -> bool {
 }
 
 pub async fn handle_api_access_key_request(req: &HttpRequest) -> HttpResponse {
-    let (redis_pool, config, bilisender) = req
-        .app_data::<(Pool, BiliConfig, Arc<Sender<BackgroundTaskType>>)>()
-        .unwrap();
-    let bili_runtime = BiliRuntime::new(config, redis_pool, bilisender);
+    let state = req.app_data::<web::Data<AppState>>().unwrap();
+    let config = state.config_snapshot();
+    let bili_runtime = BiliRuntime::new(
+        config.as_ref(),
+        &state.redis_pool,
+        &state.channel,
+        &state.access_control,
+    );
     let query_string = req.query_string();
     let query = QString::from(query_string);
+    let access_decision = match state.access_control.evaluate(
+        state.resolve_client_ip(req).into(),
+        None,
+        None,
+        "accesskey",
+    ) {
+        Ok(value) => value,
+        Err(_) => build_response!(EType::ServerGeneral),
+    };
+    update_context(req, |event| {
+        event.blocked = access_decision.denied;
+        event.matched_rule_id = access_decision.rule_id;
+    });
+    if access_decision.denied {
+        let error = EType::UserBlacklistedError(access_decision.expires_at.unwrap_or(0));
+        build_response!(error);
+    }
     // detect client ip for log
     // let client_ip: String = match req.headers().get("X-Real-IP") {
     //     Some(value) => value.to_str().unwrap().to_owned(),
@@ -782,7 +901,7 @@ pub async fn handle_api_access_key_request(req: &HttpRequest) -> HttpResponse {
         }
     };
 
-    if !is_api_accesskey_open(config, area_num) {
+    if !is_api_accesskey_open(&config, area_num) {
         build_response!(-404, "API is disabled for this area");
     }
 
@@ -827,41 +946,8 @@ pub async fn handle_api_health_request(req: &HttpRequest) -> HttpResponse {
     build_response!(body)
 }
 
-use lazy_static::lazy_static;
-
-lazy_static! {
-    static ref ERRORURL_REG: Regex = Regex::new(
-        r"(/pgc/player/api/playurl)|(/pgc/player/web/playurl)|(/intl/gateway/v2/ogv/playurl)|(/x/v2/search/type)|(/x/web-interface/search/type)|(/intl/gateway/v2/app/search/type)|(/intl/gateway/v2/ogv/view/app/season)|(/intl/gateway/v2/app/subtitle)|(/pgc/view/v2/app/season)",
-    ).unwrap();
-}
-
 pub async fn errorurl_reg(url: &str) -> Option<u8> {
-    let re = &*ERRORURL_REG;
-    let caps = re.captures(url.as_bytes()).ok()??;
-    debug!("[ERRORURL_REG] Captures: {:?}", caps);
-    let mut res_url: &str = "";
-    // let mut index = 1;
-    // while index <= 8 {
-    //     match &caps.get(index) {
-    //         Some(value) => {
-    //             res_url = std::str::from_utf8(value.as_bytes()).unwrap();
-    //             break;
-    //         }
-    //         None => (),
-    //     }
-    //     index += 1;
-    // }
-    for index in 1..=8usize {
-        match &caps.get(index) {
-            Some(value) => {
-                res_url = unsafe { std::str::from_utf8_unchecked(value.as_bytes()) };
-                break;
-            }
-            None => (),
-        }
-    }
-
-    match res_url {
+    match url {
         "/pgc/player/api/playurl" => Some(1),
         "/pgc/player/web/playurl" => Some(2),
         "/intl/gateway/v2/ogv/playurl" => Some(3),
@@ -870,7 +956,8 @@ pub async fn errorurl_reg(url: &str) -> Option<u8> {
         "/intl/gateway/v2/app/search/type" => Some(6),
         "/intl/gateway/v2/ogv/view/app/season" => Some(7),
         "/intl/gateway/v2/app/subtitle" => Some(8),
-        "/pgc/view/v2/app/season" => Some(9),
+        "/pgc/view/v2/app/season" => Some(7),
+        "/pgc/player/api/playurltv" => Some(9),
         _ => None,
     }
 }
@@ -878,14 +965,20 @@ pub async fn errorurl_reg(url: &str) -> Option<u8> {
 #[cfg(test)]
 mod tests {
     use super::{
-        handle_api_access_key_request, handle_api_health_request, normalize_search_response,
+        errorurl_reg, handle_api_access_key_request, handle_api_health_request,
+        normalize_search_response,
     };
-    use crate::mods::types::{BackgroundTaskType, BiliConfig};
-    use actix_web::{body::to_bytes, test::TestRequest};
+    use crate::mods::{
+        audit::AuditService,
+        management::AppState,
+        storage::Database,
+        types::{Area, BackgroundTaskType, BiliConfig, ReqType},
+    };
+    use actix_web::{body::to_bytes, test::TestRequest, web};
     use async_channel::bounded;
     use deadpool_redis::{Config as RedisConfig, Runtime};
     use serde_json::{json, Value};
-    use std::sync::Arc;
+    use std::{path::PathBuf, sync::Arc};
 
     fn test_config() -> BiliConfig {
         let mut config: BiliConfig =
@@ -925,8 +1018,18 @@ mod tests {
             .create_pool(Some(Runtime::Tokio1))
             .unwrap();
         let (sender, _receiver) = bounded::<BackgroundTaskType>(1);
+        let database = Database::open(":memory:").unwrap();
+        let (audit, _audit_receiver) = AuditService::new(database.clone(), 8);
+        let state = AppState::new(
+            config,
+            PathBuf::from("config.json"),
+            pool,
+            Arc::new(sender),
+            database,
+            audit,
+        );
         let req = TestRequest::with_uri("/api/accesskey?area_num=1&sign=test-sign")
-            .app_data((pool, config, Arc::new(sender)))
+            .app_data(web::Data::new(state))
             .to_http_request();
 
         let resp = handle_api_access_key_request(&req).await;
@@ -938,6 +1041,20 @@ mod tests {
             .as_str()
             .unwrap()
             .contains("API is disabled for this area"));
+    }
+
+    #[actix_web::test]
+    async fn tv_playurl_has_an_explicit_route_and_upstream() {
+        assert_eq!(errorurl_reg("/pgc/player/api/playurltv").await, Some(9));
+        let config = test_config();
+        assert_eq!(
+            ReqType::Playurl(Area::Cn, true, true).get_api(&config),
+            "https://api.snm0516.aisee.tv/pgc/player/api/playurltv"
+        );
+        assert_eq!(
+            ReqType::Playurl(Area::Cn, true, false).get_api(&config),
+            config.cn_app_playurl_api
+        );
     }
 
     #[test]

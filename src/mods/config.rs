@@ -1,17 +1,18 @@
 use super::types::{BiliConfig, BiliRuntime};
 use std::{
     fs::{self, File},
-    path::Path,
+    io::Write,
+    path::{Path, PathBuf},
 };
 pub fn init_biliconfig() -> BiliConfig {
-    let mut config_type: Option<&str> = None;
-    let config_suffix = ["json", "yml"];
-    for suffix in config_suffix {
-        if Path::new(&format!("config.{suffix}")).exists() {
-            config_type = Some(suffix);
+    let config_path = match active_config_path() {
+        Ok(path) => path,
+        Err(error) => {
+            println!("{error}");
+            std::process::exit(78);
         }
-    }
-    let mut config = match load_biliconfig(config_type) {
+    };
+    let mut config = match load_biliconfig(&config_path) {
         Ok(value) => value,
         Err(value) => {
             println!("{value}");
@@ -31,50 +32,54 @@ pub fn init_biliconfig() -> BiliConfig {
     config
 }
 
-fn load_biliconfig(config_type: Option<&str>) -> Result<BiliConfig, String> {
-    let config: BiliConfig;
-    let config_file: File;
-    match config_type {
-        None => {
-            return Err("[error] 无配置文件".to_owned());
-        }
-        Some(value) => {
-            match File::open(format!("config.{}", value)) {
-                Ok(value) => {
-                    config_file = value;
-                }
-                Err(_) => {
-                    return Err("[error] 配置文件打开失败".to_owned());
-                }
-            }
-            match value {
-                "json" => config = serde_json::from_reader(config_file).unwrap(),
-                "yml" => config = serde_yaml::from_reader(config_file).unwrap(),
-                _ => {
-                    return Err("[error] 未预期的错误-1".to_owned());
-                }
-            }
-        }
+pub fn active_config_path() -> Result<PathBuf, String> {
+    ["config.json", "config.yml", "config.yaml"]
+        .into_iter()
+        .map(PathBuf::from)
+        .find(|path| path.exists())
+        .ok_or_else(|| "[error] 无配置文件，请复制 config.example.json 为 config.json".to_string())
+}
+
+fn load_biliconfig(path: &Path) -> Result<BiliConfig, String> {
+    let config_file = File::open(path)
+        .map_err(|error| format!("[error] 配置文件 {} 打开失败: {error}", path.display()))?;
+    match path.extension().and_then(|extension| extension.to_str()) {
+        Some("json") => serde_json::from_reader(config_file)
+            .map_err(|error| format!("[error] JSON 配置解析失败: {error}")),
+        Some("yml" | "yaml") => serde_yaml::from_reader(config_file)
+            .map_err(|error| format!("[error] YAML 配置解析失败: {error}")),
+        _ => Err("[error] 配置文件仅支持 json、yml 或 yaml".to_string()),
     }
-    match config_type.unwrap() {
-        "json" => {
-            if let Err(_) = fs::write(
-                "config.json",
-                serde_json::to_string_pretty(&config).unwrap(),
-            ) {
-                println!("[Warning] config.json 更新失败");
-            }
-        }
-        "yml" => {
-            if let Err(_) = fs::write("config.yml", serde_yaml::to_string(&config).unwrap()) {
-                println!("[Warning] config.yml 更新失败");
-            }
-        }
-        _ => {
-            return Err("[error] 未预期的错误-2".to_owned());
-        }
+}
+
+pub fn save_biliconfig_atomic(path: &Path, config: &BiliConfig) -> Result<PathBuf, String> {
+    let extension = path
+        .extension()
+        .and_then(|extension| extension.to_str())
+        .ok_or_else(|| "配置文件缺少扩展名".to_string())?;
+    let serialized = match extension {
+        "json" => serde_json::to_string_pretty(config).map_err(|error| error.to_string())?,
+        "yml" | "yaml" => serde_yaml::to_string(config).map_err(|error| error.to_string())?,
+        _ => return Err("配置文件仅支持 json、yml 或 yaml".to_string()),
+    };
+    let temporary_path = path.with_extension(format!("{extension}.tmp"));
+    let backup_path = path.with_extension(format!("{extension}.bak"));
+
+    let mut temporary = File::create(&temporary_path).map_err(|error| error.to_string())?;
+    temporary
+        .write_all(serialized.as_bytes())
+        .and_then(|_| temporary.sync_all())
+        .map_err(|error| error.to_string())?;
+
+    if backup_path.exists() {
+        fs::remove_file(&backup_path).map_err(|error| error.to_string())?;
     }
-    Ok(config)
+    fs::rename(path, &backup_path).map_err(|error| error.to_string())?;
+    if let Err(error) = fs::rename(&temporary_path, path) {
+        let _ = fs::rename(&backup_path, path);
+        return Err(format!("替换配置文件失败: {error}"));
+    }
+    Ok(backup_path)
 }
 
 pub async fn prepare_before_start(bili_runtime: BiliRuntime<'_>) {
@@ -112,43 +117,83 @@ pub fn load_sslconfig() -> Result<rustls::ServerConfig, Box<dyn std::error::Erro
 
 pub async fn update_biliconfig() -> Result<bool, Box<dyn std::error::Error>> {
     use tokio::fs;
-
-    async fn read_config_json() -> Result<serde_json::Value, Box<dyn std::error::Error>> {
-        let config = fs::read_to_string("config.json").await?;
-        let config: serde_json::Value = serde_json::from_str(&config)?;
-        Ok(config)
+    let path = active_config_path().map_err(std::io::Error::other)?;
+    let raw = fs::read_to_string(&path).await?;
+    let mut config: serde_json::Value = match path.extension().and_then(|value| value.to_str()) {
+        Some("json") => serde_json::from_str(&raw)?,
+        Some("yml" | "yaml") => {
+            let yaml: serde_yaml::Value = serde_yaml::from_str(&raw)?;
+            serde_json::to_value(yaml)?
+        }
+        _ => return Err("unsupported config format".into()),
+    };
+    let is_updated = migrate_config_value(&mut config);
+    if !is_updated {
+        return Ok(false);
     }
 
-    async fn read_config_yaml() -> Result<serde_yaml::Value, Box<dyn std::error::Error>> {
-        let config = fs::read_to_string("config.yaml").await?;
-        let config: serde_yaml::Value = serde_yaml::from_str(&config)?;
-        Ok(config)
+    let migrated = serde_json::from_value::<BiliConfig>(config)?;
+    save_biliconfig_atomic(&path, &migrated).map_err(std::io::Error::other)?;
+    Ok(true)
+}
+
+fn migrate_config_value(config: &mut serde_json::Value) -> bool {
+    let Some(object) = config.as_object_mut() else {
+        return false;
+    };
+    let version = object
+        .get("config_version")
+        .and_then(serde_json::Value::as_u64)
+        .unwrap_or(1);
+    if version >= 5 {
+        return false;
     }
 
-    let mut is_updated: bool = false;
-
-    if Path::new("config.json").exists() {
-        let mut config = read_config_json().await?;
-        if config["config_version"].as_i64().unwrap_or(3) <= 3 {
-            config["http_port"] = config["port"].clone();
-            config["config_version"] = serde_json::Value::from(4);
-            config["worker_num"] = config["woker_num"].clone();
-            is_updated = true;
-        }
-        if is_updated {
-            fs::write("config.json", serde_json::to_string_pretty(&config)?).await?;
-        }
-    } else if Path::new("config.yaml").exists() {
-        let mut config = read_config_yaml().await?;
-        if config["config_version"].as_i64().unwrap_or(3) <= 3 {
-            config["http_port"] = config["port"].clone();
-            config["config_version"] = serde_yaml::Value::from(4);
-            config["worker_num"] = config["woker_num"].clone();
-            is_updated = true;
-        }
-        if is_updated {
-            fs::write("config.yaml", serde_yaml::to_string(&config)?).await?;
+    if !object.contains_key("http_port") {
+        if let Some(port) = object.get("port").cloned() {
+            object.insert("http_port".to_string(), port);
         }
     }
-    Ok(is_updated)
+    if !object.contains_key("worker_num") {
+        if let Some(worker_num) = object.get("woker_num").cloned() {
+            object.insert("worker_num".to_string(), worker_num);
+        }
+    }
+    if !object.contains_key("resign_from_api_open") {
+        if let Some(policy) = object.get("resign_api_policy").cloned() {
+            object.insert("resign_from_api_open".to_string(), policy);
+        }
+    }
+    for deprecated in [
+        "port",
+        "woker_num",
+        "resign_api_policy",
+        "local_wblist",
+        "blacklist_config",
+    ] {
+        object.remove(deprecated);
+    }
+    object.insert("config_version".to_string(), serde_json::Value::from(5));
+    true
+}
+
+#[cfg(test)]
+mod tests {
+    use super::migrate_config_value;
+
+    #[test]
+    fn migration_preserves_correct_worker_num() {
+        let mut value = serde_json::json!({
+            "config_version": 2,
+            "port": 2662,
+            "worker_num": 8,
+            "woker_num": 4
+        });
+        assert!(migrate_config_value(&mut value));
+        assert_eq!(value["http_port"], 2662);
+        assert_eq!(value["worker_num"], 8);
+        assert_eq!(value["config_version"], 5);
+        assert!(value.get("port").is_none());
+        assert!(value.get("woker_num").is_none());
+    }
 }

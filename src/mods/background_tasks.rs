@@ -105,7 +105,7 @@ pub async fn background_task_run(
                 for area_num in [1 as u8, 2, 3, 4] {
                     if !check_proxy_health(
                         area_num,
-                        ReqType::Playurl(Area::new(area_num), true),
+                        ReqType::Playurl(Area::new(area_num), true, false),
                         bili_runtime,
                     )
                     .await
@@ -192,7 +192,7 @@ pub async fn background_task_run(
                             let area_num = area_num.parse::<u8>().unwrap_or(2);
                             let req_type = match &value {
                                 HealthReportType::Playurl(_) => {
-                                    ReqType::Playurl(Area::new(area_num), true)
+                                    ReqType::Playurl(Area::new(area_num), true, false)
                                 }
                                 HealthReportType::Search(_) => {
                                     ReqType::Search(Area::new(area_num), true)

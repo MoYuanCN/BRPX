@@ -1,86 +1,182 @@
 <!doctype html>
-<html>
+<html lang="zh-CN">
 <head>
-<meta charset="utf-8">
-<title>BiliRust-panel</title>
-	
-	<style>
-        fieldset{
-/*            background-color: #f1f1f1;*/
-            border: none;
-            border-radius: 2px;
-            margin-bottom: 12px;
-            overflow: hidden;
-            padding: 0 .625em;
-        }
- 
-        label{
-            cursor: pointer;
-            display: inline-block;
-            padding: 3px 6px;
-            text-align: right;
-            width: 150px;
-            vertical-align: top;
-        }
- 
-        input{
-            font-size: inherit;
-        }
-    </style>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>BRPX 管理台</title>
+  <script src="/admin/assets/lucide.min.js"></script>
+  <style>
+    :root {
+      color-scheme: light;
+      --bg: #f5f6f7; --surface: #fff; --surface-2: #eef1f3; --ink: #202428;
+      --muted: #667078; --line: #d9dee2; --accent: #d84b72; --accent-strong: #b72e56;
+      --green: #19734b; --green-bg: #e5f5ed; --amber: #9a5a00; --amber-bg: #fff1d6;
+      --red: #b3261e; --red-bg: #fce8e6; --shadow: 0 12px 32px rgba(30,37,42,.12);
+      font-family: Inter, "Segoe UI", "Microsoft YaHei", sans-serif; font-size: 14px;
+    }
+    * { box-sizing: border-box; }
+    body { margin: 0; min-height: 100vh; background: var(--bg); color: var(--ink); }
+    button, input, select, textarea { font: inherit; letter-spacing: 0; }
+    button { cursor: pointer; } button:disabled { cursor: not-allowed; opacity: .55; }
+    .hidden { display: none !important; }
+    .auth-shell { min-height: 100vh; display: grid; place-items: center; padding: 24px; background: #202428; }
+    .auth-panel { width: min(420px,100%); background: var(--surface); border: 1px solid #343b40; border-top: 4px solid var(--accent); border-radius: 6px; box-shadow: var(--shadow); padding: 30px; }
+    .brand-lockup { display: flex; align-items: center; gap: 12px; margin-bottom: 28px; }
+    .brand-mark { width: 38px; height: 38px; display: grid; place-items: center; background: var(--accent); color: #fff; border-radius: 6px; font-weight: 800; }
+    .brand-name { font-size: 21px; font-weight: 750; } .brand-meta { color: var(--muted); margin-top: 2px; font-size: 12px; }
+    h1,h2,h3,p { margin-top: 0; } h1 { font-size: 20px; margin-bottom: 6px; } h2 { font-size: 18px; margin-bottom: 4px; } h3 { font-size: 14px; }
+    .auth-mode { color: var(--muted); margin-bottom: 22px; }
+    .field { display: grid; gap: 7px; margin-bottom: 16px; } .field label { color: #3f474d; font-weight: 650; font-size: 13px; }
+    input,select,textarea { width: 100%; border: 1px solid #bec6cc; border-radius: 5px; background: #fff; color: var(--ink); padding: 9px 10px; outline: none; }
+    input:focus,select:focus,textarea:focus { border-color: var(--accent); box-shadow: 0 0 0 3px rgba(216,75,114,.14); }
+    textarea.code { min-height: 520px; resize: vertical; tab-size: 2; font-family: "Cascadia Code",Consolas,monospace; font-size: 12px; line-height: 1.55; }
+    .button { min-height: 36px; border: 1px solid transparent; border-radius: 5px; display: inline-flex; align-items: center; justify-content: center; gap: 7px; padding: 8px 13px; background: var(--accent); color: #fff; font-weight: 650; }
+    .button:hover { background: var(--accent-strong); } .button.secondary { color: var(--ink); background: #fff; border-color: #b9c1c7; }
+    .button.secondary:hover { background: var(--surface-2); } .button.danger { color: var(--red); background: #fff; border-color: #e2aaa6; }
+    .button.danger:hover { background: var(--red-bg); } .button.full { width: 100%; }
+    .icon-button { width: 34px; height: 34px; padding: 0; border: 1px solid var(--line); border-radius: 5px; background: #fff; color: var(--ink); display: grid; place-items: center; }
+    .icon-button:hover { background: var(--surface-2); } [data-lucide] { width: 17px; height: 17px; stroke-width: 1.8; }
+    .app-shell { min-height: 100vh; display: grid; grid-template-columns: 228px minmax(0,1fr); }
+    .sidebar { position: sticky; top: 0; height: 100vh; background: #202428; color: #f7f8f8; padding: 20px 14px; display: flex; flex-direction: column; border-right: 1px solid #353c41; }
+    .sidebar .brand-lockup { padding: 0 8px; margin-bottom: 24px; } .sidebar .brand-meta { color: #aeb7bd; }
+    .nav { display: grid; gap: 4px; } .nav button { width: 100%; height: 40px; border: 0; border-radius: 5px; background: transparent; color: #cbd1d5; display: flex; align-items: center; gap: 10px; padding: 0 11px; text-align: left; }
+    .nav button:hover { background: #30373c; color: #fff; } .nav button.active { background: var(--accent); color: #fff; }
+    .sidebar-footer { margin-top: auto; display: grid; gap: 10px; padding: 0 8px; } .version { color: #aeb7bd; font-size: 12px; }
+    .sidebar-footer .button { background: transparent; border-color: #4a5359; color: #e8ecee; }
+    .main { min-width: 0; } .topbar { height: 60px; background: var(--surface); border-bottom: 1px solid var(--line); display: flex; align-items: center; justify-content: space-between; padding: 0 28px; position: sticky; top: 0; z-index: 5; }
+    .topbar-title { font-size: 16px; font-weight: 720; } .connection { display: flex; align-items: center; gap: 8px; color: var(--muted); font-size: 12px; }
+    .status-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--green); }
+    .content { max-width: 1440px; padding: 24px 28px 48px; } .page { display: none; } .page.active { display: block; }
+    .page-heading { display: flex; justify-content: space-between; gap: 16px; align-items: end; margin-bottom: 20px; } .page-heading p { color: var(--muted); margin: 0; }
+    .actions { display: flex; gap: 8px; flex-wrap: wrap; }
+    .metrics { display: grid; grid-template-columns: repeat(4,minmax(0,1fr)); gap: 12px; margin-bottom: 22px; }
+    .metric { background: var(--surface); border: 1px solid var(--line); border-radius: 6px; padding: 17px; }
+    .metric-label { color: var(--muted); font-size: 12px; margin-bottom: 9px; } .metric-value { font-size: 24px; font-weight: 760; font-variant-numeric: tabular-nums; }
+    .metric-foot { margin-top: 7px; color: var(--muted); font-size: 12px; }
+    .panel { background: var(--surface); border: 1px solid var(--line); border-radius: 6px; }
+    .panel-header { min-height: 52px; border-bottom: 1px solid var(--line); padding: 12px 16px; display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+    .panel-header h3 { margin: 0; } .panel-body { padding: 16px; }
+    .status-list { display: grid; grid-template-columns: repeat(3,minmax(0,1fr)); gap: 1px; background: var(--line); }
+    .status-item { background: #fff; padding: 16px; display: flex; justify-content: space-between; gap: 12px; } .status-item span:first-child { color: var(--muted); }
+    .notice { border-left: 3px solid var(--amber); background: var(--amber-bg); color: #6d4307; padding: 11px 13px; margin-bottom: 14px; }
+    .notice.success { border-color: var(--green); background: var(--green-bg); color: #13583b; }
+    .config-stack { display: grid; gap: 18px; } .password-grid { display: grid; grid-template-columns: repeat(3,minmax(0,1fr)) auto; gap: 12px; align-items: end; } .password-grid .field { margin: 0; }
+    .filter-grid { display: grid; grid-template-columns: repeat(6,minmax(120px,1fr)); gap: 10px; align-items: end; } .filter-grid .field { margin: 0; }
+    .table-wrap { overflow: auto; } table { width: 100%; border-collapse: collapse; min-width: 880px; }
+    th,td { padding: 11px 12px; border-bottom: 1px solid var(--line); text-align: left; vertical-align: middle; } th { color: var(--muted); background: #fafbfb; font-size: 12px; font-weight: 700; position: sticky; top: 0; }
+    td { font-size: 13px; } tr:last-child td { border-bottom: 0; } tr[data-detail] { cursor: pointer; } tr[data-detail]:hover td { background: #fafbfb; }
+    .mono { font-family: "Cascadia Code",Consolas,monospace; font-size: 12px; }
+    .badge { display: inline-flex; align-items: center; min-height: 23px; border-radius: 4px; padding: 2px 7px; font-size: 11px; font-weight: 700; }
+    .badge.green { color: var(--green); background: var(--green-bg); } .badge.red { color: var(--red); background: var(--red-bg); }
+    .badge.gray { color: #536068; background: var(--surface-2); } .badge.amber { color: var(--amber); background: var(--amber-bg); }
+    .row-actions { display: flex; gap: 6px; justify-content: flex-end; } .empty { padding: 44px 20px; text-align: center; color: var(--muted); }
+    .pagination { display: flex; justify-content: space-between; align-items: center; padding: 12px 16px; border-top: 1px solid var(--line); }
+    .drawer-backdrop { position: fixed; inset: 0; background: rgba(24,29,32,.5); z-index: 20; }
+    .drawer { position: fixed; right: 0; top: 0; bottom: 0; width: min(480px,100%); background: #fff; z-index: 21; box-shadow: var(--shadow); display: flex; flex-direction: column; }
+    .drawer-header { height: 60px; border-bottom: 1px solid var(--line); padding: 0 18px; display: flex; align-items: center; justify-content: space-between; } .drawer-header h2 { margin: 0; font-size: 17px; }
+    .drawer-body { padding: 18px; overflow: auto; } .drawer-footer { margin-top: auto; padding: 14px 18px; border-top: 1px solid var(--line); display: flex; justify-content: flex-end; gap: 8px; }
+    .detail-grid { display: grid; grid-template-columns: 130px 1fr; gap: 8px 14px; } .detail-grid dt { color: var(--muted); } .detail-grid dd { margin: 0; overflow-wrap: anywhere; }
+    .toast-stack { position: fixed; right: 18px; bottom: 18px; display: grid; gap: 8px; z-index: 40; } .toast { width: min(360px,calc(100vw - 36px)); background: #252b2f; color: #fff; border-radius: 5px; padding: 12px 14px; box-shadow: var(--shadow); } .toast.error { background: #8f211b; }
+    @media (max-width:980px) { .app-shell { grid-template-columns: 72px minmax(0,1fr); } .sidebar { padding-inline: 10px; } .sidebar .brand-name,.sidebar .brand-meta,.nav span,.sidebar-footer span,.version { display: none; } .sidebar .brand-lockup { justify-content: center; padding: 0; } .nav button { justify-content: center; padding: 0; } .metrics { grid-template-columns: repeat(2,minmax(0,1fr)); } .filter-grid { grid-template-columns: repeat(3,minmax(120px,1fr)); } }
+    @media (max-width:640px) { .app-shell { display: block; padding-bottom: 66px; } .sidebar { position: fixed; inset: auto 0 0; width: auto; height: 62px; z-index: 10; padding: 7px; border: 0; border-top: 1px solid #353c41; } .sidebar .brand-lockup,.sidebar-footer { display: none; } .nav { grid-template-columns: repeat(4,1fr); height: 100%; } .nav button { height: 48px; } .topbar { padding: 0 16px; } .content { padding: 18px 14px 32px; } .page-heading { align-items: flex-start; flex-direction: column; } .metrics { grid-template-columns: 1fr 1fr; } .metric { padding: 13px; } .metric-value { font-size: 20px; } .status-list { grid-template-columns: 1fr; } .filter-grid { grid-template-columns: 1fr 1fr; } .password-grid { grid-template-columns: 1fr; } }
+  </style>
 </head>
-
 <body>
-	<h1>BiliRoaming-Rust-Panel</h1>
-	<form action="">
-        <fieldset>
-        <p>
-            <label for="auto_update" >自动更新:</label>
-			<input type="checkbox" id="auto_update" name="auto_update" align="left" value="true">
-        </p>
-		<p>
-            <label for="auto_close" >更新后自动关闭:</label>
-			<input type="checkbox" id="auto_close" name="auto_close" align="left" value="true">
-        </p>
-        <p>
-            <label for="redis">redis url:</label>
-            <input type="text" id="redis" name="redis" align="left">
-        </p>
-		<p>
-            <label for="woker_num">woker_num:</label>
-            <input type="number" id="woker_num" name="woker_num"  min="1" max="5" value="4" align="left">
-        </p>
-		<p>
-            <label for="port">port:</label>
-            <input type="text" id="port" name="port" align="left">
-        </p>
-		<p>
-            <label for="cn_app_playurl_api">cn_app_playurl_api:</label>
-            <input type="text" id="cn_app_playurl_api" name="cn_app_playurl_api" value="233" align="left">
-        </p>
-		<p>
-            <label for="hk_app_playurl_api">hk_app_playurl_api:</label>
-            <input type="text" id="hk_app_playurl_api" name="hk_app_playurl_api" align="left">
-        </p>
-		<p>
-            <label for="tw_app_playurl_api">tw_app_playurl_api:</label>
-            <input type="text" id="tw_app_playurl_api" name="tw_app_playurl_api" align="left">
-        </p>
-		<p>
-            <label for="th_app_playurl_api">th_app_playurl_api:</label>
-            <input type="text" id="th_app_playurl_api" name="th_app_playurl_api" align="left">
-        </p>
-		<p>
-            <label for="cn_web_playurl_api">cn_web_playurl_api:</label>
-            <input type="text" id="cn_web_playurl_api" name="cn_web_playurl_api" align="left">
-        </p>
-        <p>
-            <label for="messageContent">message content:</label>
-            <textarea id="messageContent" name="messageContent" cols="40" rows="5" align="left"></textarea>
-        </p>
-        <p>
-            <input type="submit">
-        </p>
-        </fieldset>
-    </form>
+  <main id="authShell" class="auth-shell">
+    <section class="auth-panel" aria-labelledby="authTitle">
+      <div class="brand-lockup"><div class="brand-mark">B</div><div><div class="brand-name">BRPX</div><div class="brand-meta">Bilibili Parse Control</div></div></div>
+      <h1 id="authTitle">管理员登录</h1><p id="authMode" class="auth-mode">输入管理密码</p>
+      <form id="authForm">
+        <div class="field"><label for="password">管理密码</label><input id="password" type="password" autocomplete="current-password" minlength="12" required></div>
+        <div id="confirmField" class="field hidden"><label for="confirmPassword">确认密码</label><input id="confirmPassword" type="password" autocomplete="new-password" minlength="12"></div>
+        <button id="authSubmit" class="button full" type="submit"><i data-lucide="log-in"></i><span>登录</span></button>
+      </form>
+    </section>
+  </main>
+
+  <div id="appShell" class="app-shell hidden">
+    <aside class="sidebar">
+      <div class="brand-lockup"><div class="brand-mark">B</div><div><div class="brand-name">BRPX</div><div class="brand-meta">管理控制台</div></div></div>
+      <nav class="nav" aria-label="主导航">
+        <button class="active" data-page="dashboard" aria-label="运行概览" title="运行概览"><i data-lucide="layout-dashboard"></i><span>运行概览</span></button>
+        <button data-page="config" aria-label="服务配置" title="服务配置"><i data-lucide="settings-2"></i><span>服务配置</span></button>
+        <button data-page="rules" aria-label="访问规则" title="访问规则"><i data-lucide="shield-ban"></i><span>访问规则</span></button>
+        <button data-page="audits" aria-label="请求审计" title="请求审计"><i data-lucide="scroll-text"></i><span>请求审计</span></button>
+      </nav>
+      <div class="sidebar-footer"><div id="sidebarVersion" class="version">BRPX</div><button id="logoutButton" class="button secondary"><i data-lucide="log-out"></i><span>退出登录</span></button></div>
+    </aside>
+    <section class="main">
+      <header class="topbar"><div id="topbarTitle" class="topbar-title">运行概览</div><div class="connection"><span class="status-dot"></span><span>管理会话已连接</span></div></header>
+      <div class="content">
+        <section id="page-dashboard" class="page active">
+          <div class="page-heading"><div><h2>运行概览</h2><p>最近 24 小时</p></div><button class="icon-button" data-action="refresh-dashboard" title="刷新"><i data-lucide="refresh-cw"></i></button></div>
+          <div class="metrics">
+            <div class="metric"><div class="metric-label">请求数</div><div id="metricRequests" class="metric-value">-</div><div class="metric-foot">解析接口</div></div>
+            <div class="metric"><div class="metric-label">阻断数</div><div id="metricBlocked" class="metric-value">-</div><div class="metric-foot">规则命中</div></div>
+            <div class="metric"><div class="metric-label">错误数</div><div id="metricErrors" class="metric-value">-</div><div class="metric-foot">HTTP / 业务码</div></div>
+            <div class="metric"><div class="metric-label">有效规则</div><div id="metricRules" class="metric-value">-</div><div class="metric-foot">允许与拒绝</div></div>
+          </div>
+          <section class="panel"><div class="panel-header"><h3>服务状态</h3><span id="redisBadge" class="badge gray">检测中</span></div><div class="status-list">
+            <div class="status-item"><span>服务版本</span><strong id="serviceVersion">-</strong></div><div class="status-item"><span>配置版本</span><strong id="configVersion">-</strong></div><div class="status-item"><span>运行时长</span><strong id="serviceUptime">-</strong></div>
+            <div class="status-item"><span>Redis</span><strong id="redisState">-</strong></div><div class="status-item"><span>审计丢弃</span><strong id="auditDropped">-</strong></div><div class="status-item"><span>管理端</span><strong>已认证</strong></div>
+          </div></section>
+        </section>
+        <section id="page-config" class="page">
+          <div class="page-heading"><div><h2>服务配置</h2><p id="configPath">-</p></div><div class="actions"><button id="formatConfig" class="button secondary"><i data-lucide="braces"></i>格式化</button><button id="saveConfig" class="button"><i data-lucide="save"></i>保存配置</button></div></div>
+          <div id="configNotice" class="notice hidden"></div><div class="config-stack"><section class="panel"><div class="panel-header"><h3>运行配置</h3><span class="badge gray">JSON</span></div><div class="panel-body"><textarea id="configEditor" class="code" spellcheck="false" aria-label="运行配置"></textarea></div></section>
+          <section class="panel"><div class="panel-header"><h3>管理员密码</h3></div><div class="panel-body"><form id="passwordForm" class="password-grid"><div class="field"><label for="currentPassword">当前密码</label><input id="currentPassword" type="password" autocomplete="current-password" required></div><div class="field"><label for="newPassword">新密码</label><input id="newPassword" type="password" autocomplete="new-password" minlength="12" required></div><div class="field"><label for="newPasswordConfirm">确认新密码</label><input id="newPasswordConfirm" type="password" autocomplete="new-password" minlength="12" required></div><button class="button" type="submit"><i data-lucide="key-round"></i>更新密码</button></form></div></section></div>
+        </section>
+        <section id="page-rules" class="page">
+          <div class="page-heading"><div><h2>访问规则</h2><p>UID、IP、CIDR、令牌指纹</p></div><button id="newRule" class="button"><i data-lucide="plus"></i>新建规则</button></div>
+          <section class="panel"><div class="table-wrap"><table><thead><tr><th>状态</th><th>动作</th><th>主体</th><th>值</th><th>范围</th><th>原因</th><th>过期时间</th><th></th></tr></thead><tbody id="rulesBody"></tbody></table></div><div id="rulesEmpty" class="empty hidden">暂无访问规则</div></section>
+        </section>
+        <section id="page-audits" class="page">
+          <div class="page-heading"><div><h2>请求审计</h2><p id="auditCount">-</p></div><button class="icon-button" data-action="refresh-audits" title="刷新"><i data-lucide="refresh-cw"></i></button></div>
+          <section class="panel"><div class="panel-body"><form id="auditFilters" class="filter-grid">
+            <div class="field"><label for="filterIp">IP</label><input id="filterIp" name="ip"></div><div class="field"><label for="filterUid">UID</label><input id="filterUid" name="uid" type="number" min="1"></div>
+            <div class="field"><label for="filterEndpoint">接口</label><input id="filterEndpoint" name="endpoint"></div><div class="field"><label for="filterArea">地区</label><select id="filterArea" name="area"><option value="">全部</option><option>cn</option><option>hk</option><option>tw</option><option>th</option></select></div>
+            <div class="field"><label for="filterBlocked">结果</label><select id="filterBlocked" name="blocked"><option value="">全部</option><option value="true">已阻断</option><option value="false">已放行</option></select></div><button class="button secondary" type="submit"><i data-lucide="search"></i>筛选</button>
+          </form></div><div class="table-wrap"><table><thead><tr><th>时间</th><th>来源</th><th>账号</th><th>接口</th><th>番剧 / 剧集</th><th>地区</th><th>耗时</th><th>结果</th></tr></thead><tbody id="auditsBody"></tbody></table></div><div id="auditsEmpty" class="empty hidden">暂无审计记录</div><div class="pagination"><span id="auditRange">-</span><div class="actions"><button id="auditPrev" class="icon-button" title="上一页"><i data-lucide="chevron-left"></i></button><button id="auditNext" class="icon-button" title="下一页"><i data-lucide="chevron-right"></i></button></div></div></section>
+        </section>
+      </div>
+    </section>
+  </div>
+
+  <div id="drawerBackdrop" class="drawer-backdrop hidden"></div>
+  <aside id="drawer" class="drawer hidden" aria-modal="true"><header class="drawer-header"><h2 id="drawerTitle">新建规则</h2><button id="closeDrawer" class="icon-button" title="关闭"><i data-lucide="x"></i></button></header>
+    <form id="ruleForm" class="drawer-body"><input id="ruleId" type="hidden"><div class="field"><label for="subjectType">主体类型</label><select id="subjectType" required><option value="uid">UID</option><option value="ip">IP</option><option value="cidr">CIDR</option><option value="token">访问令牌</option></select></div>
+      <div class="field"><label for="subjectValue">主体值</label><input id="subjectValue" required autocomplete="off"></div><div class="field"><label for="ruleAction">动作</label><select id="ruleAction"><option value="deny">拒绝</option><option value="allow">允许</option></select></div>
+      <div class="field"><label for="ruleScope">作用范围</label><select id="ruleScope"><option value="all">全部</option><option value="playurl">播放</option><option value="tv">TV</option><option value="search">搜索</option><option value="season">番剧</option><option value="subtitle">字幕</option><option value="accesskey">Access Key</option></select></div>
+      <div class="field"><label for="ruleReason">原因</label><textarea id="ruleReason" rows="3"></textarea></div><div class="field"><label for="ruleExpires">过期时间</label><input id="ruleExpires" type="datetime-local"></div><div class="field"><label for="ruleEnabled">状态</label><select id="ruleEnabled"><option value="true">启用</option><option value="false">停用</option></select></div>
+    </form><footer class="drawer-footer"><button id="cancelRule" class="button secondary" type="button">取消</button><button id="saveRule" class="button" type="button"><i data-lucide="save"></i>保存</button></footer>
+  </aside>
+  <div id="toastStack" class="toast-stack" aria-live="polite"></div>
+
+  <script>
+    const state={bootstrap:false,csrf:'',config:null,rules:[],auditOffset:0,auditLimit:50,auditTotal:0,audits:[]};
+    const $=s=>document.querySelector(s), $$=s=>[...document.querySelectorAll(s)];
+    async function api(path,options={}){const headers={'Content-Type':'application/json',...(options.headers||{})};if(state.csrf&&!['GET','HEAD'].includes(options.method||'GET'))headers['X-BRPX-CSRF']=state.csrf;const response=await fetch(path,{credentials:'same-origin',...options,headers});const payload=await response.json().catch(()=>({ok:false,error:`HTTP ${response.status}`}));if(!response.ok||payload.ok===false)throw new Error(payload.error||`HTTP ${response.status}`);return payload.data;}
+    function toast(message,error=false){const item=document.createElement('div');item.className=`toast${error?' error':''}`;item.textContent=message;$('#toastStack').append(item);setTimeout(()=>item.remove(),3600);}
+    async function initialize(){if(window.lucide)lucide.createIcons();const status=await api('/admin/api/bootstrap/status');state.bootstrap=!status.initialized;if(state.bootstrap)setBootstrapMode();else{try{const session=await api('/admin/api/session');state.csrf=session.csrf_token;await showApplication();}catch(_){setLoginMode();}}}
+    function setBootstrapMode(){$('#authTitle').textContent='初始化管理员';$('#authMode').textContent='设置首个管理密码';$('#confirmField').classList.remove('hidden');$('#confirmPassword').required=true;$('#password').autocomplete='new-password';$('#authSubmit span').textContent='创建管理员';}
+    function setLoginMode(){state.bootstrap=false;$('#authTitle').textContent='管理员登录';$('#authMode').textContent='输入管理密码';$('#confirmField').classList.add('hidden');$('#confirmPassword').required=false;$('#password').autocomplete='current-password';$('#authSubmit span').textContent='登录';}
+    $('#authForm').addEventListener('submit',async event=>{event.preventDefault();const password=$('#password').value;if(state.bootstrap&&password!==$('#confirmPassword').value)return toast('两次输入的密码不一致',true);try{const result=await api(state.bootstrap?'/admin/api/bootstrap':'/admin/api/login',{method:'POST',body:JSON.stringify({password})});state.csrf=result.csrf_token;await showApplication();}catch(error){toast(error.message,true);}});
+    async function showApplication(){$('#password').value='';$('#confirmPassword').value='';$('#authShell').classList.add('hidden');$('#appShell').classList.remove('hidden');if(window.lucide)lucide.createIcons();await loadDashboard();}
+    async function loadDashboard(){try{const data=await api('/admin/api/dashboard');$('#metricRequests').textContent=formatNumber(data.audit.requests_24h);$('#metricBlocked').textContent=formatNumber(data.audit.blocked_24h);$('#metricErrors').textContent=formatNumber(data.audit.errors_24h);$('#metricRules').textContent=formatNumber(data.active_rules);$('#serviceVersion').textContent=data.version;$('#sidebarVersion').textContent=`BRPX ${data.version}`;$('#configVersion').textContent=data.config_version;$('#serviceUptime').textContent=formatDuration(data.uptime_seconds);$('#redisState').textContent=data.redis_ok?'正常':'不可用';$('#redisBadge').textContent=data.redis_ok?'Redis 正常':'Redis 异常';$('#redisBadge').className=`badge ${data.redis_ok?'green':'red'}`;$('#auditDropped').textContent=formatNumber(data.audit.dropped_since_start);}catch(error){toast(error.message,true);}}
+    async function loadConfig(){const data=await api('/admin/api/config');state.config=data.config;$('#configPath').textContent=data.path;$('#configEditor').value=JSON.stringify(data.config,null,2);}
+    async function saveConfig(){try{const config=JSON.parse($('#configEditor').value);const result=await api('/admin/api/config',{method:'PUT',body:JSON.stringify({config})});const notice=$('#configNotice');notice.classList.remove('hidden','success');if(result.restart_required)notice.textContent='配置已保存，需要重启服务后完整生效。';else{notice.classList.add('success');notice.textContent='配置已保存并应用。';}await loadConfig();toast('配置保存成功');}catch(error){toast(error.message,true);}}
+    async function changePassword(event){event.preventDefault();const current=$('#currentPassword').value,next=$('#newPassword').value;if(next!==$('#newPasswordConfirm').value)return toast('两次输入的新密码不一致',true);try{await api('/admin/api/password',{method:'POST',body:JSON.stringify({current_password:current,new_password:next})});event.target.reset();toast('管理员密码已更新，其他会话已失效');}catch(error){toast(error.message,true);}}
+    async function loadRules(){const data=await api('/admin/api/rules');state.rules=data.items;$('#rulesBody').innerHTML=state.rules.map(rule=>`<tr><td><span class="badge ${rule.enabled?'green':'gray'}">${rule.enabled?'启用':'停用'}</span></td><td><span class="badge ${rule.action==='deny'?'red':'green'}">${rule.action==='deny'?'拒绝':'允许'}</span></td><td>${escapeHtml(rule.subject_type.toUpperCase())}</td><td class="mono">${escapeHtml(rule.subject_value)}</td><td>${escapeHtml(rule.scope)}</td><td>${escapeHtml(rule.reason||'-')}</td><td>${formatDate(rule.expires_at)}</td><td><div class="row-actions"><button class="icon-button" title="编辑" onclick="editRule(${rule.id})"><i data-lucide="pencil"></i></button><button class="icon-button" title="删除" onclick="removeRule(${rule.id})"><i data-lucide="trash-2"></i></button></div></td></tr>`).join('');$('#rulesEmpty').classList.toggle('hidden',state.rules.length>0);if(window.lucide)lucide.createIcons();}
+    function openRule(rule=null){$('#ruleForm').innerHTML=ruleFormFields;$('#ruleId').value=rule?.id||'';$('#drawerTitle').textContent=rule?'编辑规则':'新建规则';$('#subjectType').value=rule?.subject_type||'uid';$('#subjectValue').value=rule?.subject_value||'';$('#ruleAction').value=rule?.action||'deny';$('#ruleScope').value=rule?.scope||'all';$('#ruleReason').value=rule?.reason||'';$('#ruleExpires').value=rule?.expires_at?localDateTime(rule.expires_at):'';$('#ruleEnabled').value=String(rule?.enabled??true);$('#saveRule').classList.remove('hidden');$('#drawerBackdrop').classList.remove('hidden');$('#drawer').classList.remove('hidden');$('#subjectValue').focus();}
+    const ruleFormFields=$('#ruleForm').innerHTML;function closeRule(){$('#drawerBackdrop').classList.add('hidden');$('#drawer').classList.add('hidden');}
+    window.editRule=id=>openRule(state.rules.find(rule=>rule.id===id));window.removeRule=async id=>{if(!confirm('确定删除这条规则？'))return;try{await api(`/admin/api/rules/${id}`,{method:'DELETE'});await loadRules();toast('规则已删除');}catch(error){toast(error.message,true);}};
+    async function saveRule(){const id=$('#ruleId').value,payload={subject_type:$('#subjectType').value,subject_value:$('#subjectValue').value,action:$('#ruleAction').value,scope:$('#ruleScope').value,reason:$('#ruleReason').value,enabled:$('#ruleEnabled').value==='true',expires_at:$('#ruleExpires').value?Math.floor(new Date($('#ruleExpires').value).getTime()/1000):null};try{await api(id?`/admin/api/rules/${id}`:'/admin/api/rules',{method:id?'PUT':'POST',body:JSON.stringify(payload)});closeRule();await loadRules();toast(id?'规则已更新':'规则已创建');}catch(error){toast(error.message,true);}}
+    async function loadAudits(reset=false){if(reset)state.auditOffset=0;const form=new FormData($('#auditFilters')),query=new URLSearchParams({limit:state.auditLimit,offset:state.auditOffset});for(const[key,value]of form.entries())if(value)query.set(key,value);const data=await api(`/admin/api/audits?${query}`);state.audits=data.items;state.auditTotal=data.total;$('#auditCount').textContent=`${formatNumber(data.total)} 条记录`;$('#auditsBody').innerHTML=data.items.map((item,index)=>{const businessFailed=item.business_code!==null&&item.business_code!==0,result=item.blocked?'已阻断':businessFailed?item.business_code:item.http_status,resultClass=item.blocked?'red':businessFailed||item.http_status>=400?'amber':'green';return`<tr data-detail onclick="showAudit(${index})"><td>${formatDateTime(item.created_at)}</td><td class="mono">${escapeHtml(item.client_ip)}</td><td>${item.uid||'-'}</td><td class="mono">${escapeHtml(item.endpoint)}</td><td>${escapeHtml([item.season_title,item.episode_title].filter(Boolean).join(' / ')||item.ep_id||'-')}</td><td>${escapeHtml(item.area||'-')}</td><td>${item.duration_ms} ms</td><td><span class="badge ${resultClass}">${result}</span></td></tr>`}).join('');$('#auditsEmpty').classList.toggle('hidden',data.items.length>0);const start=data.total?data.offset+1:0,end=Math.min(data.offset+data.items.length,data.total);$('#auditRange').textContent=`${start}-${end} / ${data.total}`;$('#auditPrev').disabled=data.offset===0;$('#auditNext').disabled=data.offset+data.items.length>=data.total;}
+    window.showAudit=index=>{const item=state.audits[index];$('#drawerTitle').textContent='请求详情';$('#ruleForm').innerHTML=`<dl class="detail-grid">${Object.entries(item).map(([key,value])=>`<dt>${escapeHtml(key)}</dt><dd class="${typeof value==='string'?'mono':''}">${escapeHtml(value??'-')}</dd>`).join('')}</dl>`;$('#saveRule').classList.add('hidden');$('#drawerBackdrop').classList.remove('hidden');$('#drawer').classList.remove('hidden');};
+    function switchPage(page){$$('.nav button').forEach(button=>button.classList.toggle('active',button.dataset.page===page));$$('.page').forEach(section=>section.classList.toggle('active',section.id===`page-${page}`));const labels={dashboard:'运行概览',config:'服务配置',rules:'访问规则',audits:'请求审计'};$('#topbarTitle').textContent=labels[page];if(page==='dashboard')loadDashboard();if(page==='config')loadConfig().catch(error=>toast(error.message,true));if(page==='rules')loadRules().catch(error=>toast(error.message,true));if(page==='audits')loadAudits(true).catch(error=>toast(error.message,true));}
+    $$('.nav button').forEach(button=>button.addEventListener('click',()=>switchPage(button.dataset.page)));$('[data-action="refresh-dashboard"]').addEventListener('click',loadDashboard);$('[data-action="refresh-audits"]').addEventListener('click',()=>loadAudits());$('#saveConfig').addEventListener('click',saveConfig);$('#formatConfig').addEventListener('click',()=>{try{$('#configEditor').value=JSON.stringify(JSON.parse($('#configEditor').value),null,2);}catch(error){toast(error.message,true);}});$('#passwordForm').addEventListener('submit',changePassword);$('#newRule').addEventListener('click',()=>openRule());$('#closeDrawer').addEventListener('click',closeRule);$('#cancelRule').addEventListener('click',closeRule);$('#drawerBackdrop').addEventListener('click',closeRule);$('#saveRule').addEventListener('click',saveRule);$('#auditFilters').addEventListener('submit',event=>{event.preventDefault();loadAudits(true);});$('#auditPrev').addEventListener('click',()=>{state.auditOffset=Math.max(0,state.auditOffset-state.auditLimit);loadAudits();});$('#auditNext').addEventListener('click',()=>{state.auditOffset+=state.auditLimit;loadAudits();});$('#logoutButton').addEventListener('click',async()=>{try{await api('/admin/api/logout',{method:'POST'});location.reload();}catch(error){toast(error.message,true);}});
+    function escapeHtml(value){const node=document.createElement('span');node.textContent=String(value);return node.innerHTML;}function formatNumber(value){return new Intl.NumberFormat('zh-CN').format(value||0);}function formatDate(value){return value?new Intl.DateTimeFormat('zh-CN',{dateStyle:'medium',timeStyle:'short'}).format(new Date(value*1000)):'永久';}function formatDateTime(value){return value?new Intl.DateTimeFormat('zh-CN',{month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit',second:'2-digit'}).format(new Date(value*1000)):'-';}function localDateTime(value){const date=new Date(value*1000-new Date().getTimezoneOffset()*60000);return date.toISOString().slice(0,16);}function formatDuration(seconds){const days=Math.floor(seconds/86400),hours=Math.floor((seconds%86400)/3600),minutes=Math.floor((seconds%3600)/60);return`${days}天 ${hours}时 ${minutes}分`;}
+    initialize().catch(error=>toast(error.message,true));
+  </script>
 </body>
 </html>
