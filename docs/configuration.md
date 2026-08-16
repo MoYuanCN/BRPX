@@ -35,7 +35,7 @@ BRPX 按以下顺序读取第一个存在的文件：
 | 字段 | 含义 | 默认值 |
 |---|---|---|
 | `redis` | Redis 连接 URL | `redis://127.0.0.1:6379` |
-| `worker_num` | Actix Worker 数 | `8` |
+| `worker_num` | 每个 Actix `HttpServer` 的 Worker 数 | `8` |
 | `http_port` | HTTP 监听端口 | `2662` |
 | `https_port` | 内置 HTTPS 监听端口 | `2663` |
 | `rate_limit_per_second` | 单个识别主体每秒请求数 | `3` |
@@ -48,7 +48,7 @@ BRPX 按以下顺序读取第一个存在的文件：
 
 `cn`、`hk`、`tw`、`th` 分别配置 APP、Web、TV 播放和搜索上游。地区代理由对应的 `*_proxy_*_open` 与 `*_proxy_*_url` 配对控制。代理地址不含协议时按 SOCKS5 处理；建议显式填写 `socks5://`、`http://` 或 `https://`。
 
-修改上游 URL 前先确认接口路径和参数语义。`D:\project\bilibili-API-collect` 仅作为开发参考，不是运行时依赖。
+修改上游 URL 前先确认接口路径和参数语义，并用脱敏请求验证；外部 API 文档不是运行时依赖。
 
 ## 重签名和 Access Key
 

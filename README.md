@@ -91,7 +91,7 @@ cargo test --locked
 | `/api/health` | 地区上游健康状态 |
 | `/admin/` | Web 管理端 |
 
-API 参数可参考同机仓库 `D:\project\bilibili-API-collect`。该仓库不是 BRPX 的运行时依赖。TV 接口以用户提供的 `test.py` 和脱敏实测请求为补充依据。
+API 参数应以公开接口资料和脱敏实测请求为依据；BRPX 不依赖外部 API 文档仓库或测试脚本运行。
 
 ## TV 端
 
@@ -190,6 +190,15 @@ shellcheck install.sh uninstall.sh
 
 ## 文档
 
+- [01 架构总览](docs/01_framework_architecture.md)
+- [02 设计思想](docs/02_framework_philosophy.md)
+- [03 Rust 特性](docs/03_lang_concepts.md)
+- [04 代码导读](docs/04_code_walkthrough.md)
+- [05 运行时模型](docs/05_runtime_model.md)
+- [06 构建指南](docs/06_build_guide.md)
+- [07 新功能接入](docs/07_integration_guide.md)
+- [08 调试指南](docs/08_debug_guide.md)
+- [09 设计规范](docs/09_design_conventions.md)
 - [配置指南](docs/configuration.md)
 - [TV 端接入](docs/tv.md)
 - [安全与访问控制](docs/security.md)
