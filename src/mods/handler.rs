@@ -6,8 +6,8 @@ use super::health::report_health;
 use super::management::AppState;
 use super::tools::normalize_th_search_season_uris;
 use super::types::{
-    random_string, Area, BiliConfig, BiliRuntime, ClientType, EType, HealthData, HealthReportType,
-    PlayurlParams, RuntimeHealthKey, SearchParams, RUNTIME_HEALTH_STORE,
+    normalize_host, random_string, Area, BiliConfig, BiliRuntime, ClientType, EType, HealthData,
+    HealthReportType, PlayurlParams, RuntimeHealthKey, SearchParams, RUNTIME_HEALTH_STORE,
 };
 use super::upstream_res::{
     get_upstream_bili_playurl, get_upstream_bili_search, get_upstream_bili_season,
@@ -15,12 +15,39 @@ use super::upstream_res::{
 };
 use super::user_info::*;
 use crate::{build_response, build_result_response, calc_md5};
-use actix_web::{web, HttpRequest, HttpResponse};
+use actix_web::{http::header, web, HttpRequest, HttpResponse};
 use crypto::digest::Digest;
 use crypto::md5::Md5;
 use log::{debug, error, warn};
 use qstring::QString;
 use serde_json::{self, json};
+
+fn request_host(req: &HttpRequest) -> Option<String> {
+    req.headers()
+        .get(header::HOST)
+        .or_else(|| req.headers().get("authority"))
+        .and_then(|value| value.to_str().ok())
+        .and_then(normalize_host)
+}
+
+fn resolve_request_area(
+    req: &HttpRequest,
+    config: &BiliConfig,
+    query_area: Option<&str>,
+    default_to_th: bool,
+) -> Option<(&'static str, u8)> {
+    let host_area = request_host(req).and_then(|host| config.area_for_host(&host));
+    let area = host_area.or_else(|| match query_area {
+        Some("cn") => Some(Area::Cn),
+        Some("hk") => Some(Area::Hk),
+        Some("tw") => Some(Area::Tw),
+        Some("th") => Some(Area::Th),
+        Some(_) => Some(Area::Hk),
+        None if default_to_th => Some(Area::Th),
+        None => None,
+    })?;
+    Some((area.to_str(), area.num()))
+}
 
 // playurl分流
 pub async fn handle_playurl_request(
@@ -49,23 +76,11 @@ pub async fn handle_playurl_request(
     let client_ip = state.resolve_client_ip(req).to_string();
 
     // detect req area
-    (params.area, params.area_num) = match query.get("area") {
-        Some(area) => match area {
-            "cn" => ("cn", 1),
-            "hk" => ("hk", 2),
-            "tw" => ("tw", 3),
-            "th" => ("th", 4),
-            _ => ("hk", 2),
-        },
-        _ => {
-            if is_th {
-                ("th", 4)
-            } else {
-                // query param must have "area", or must be invalid req
-                build_response!(EType::InvalidReq);
-            }
-        }
-    };
+    (params.area, params.area_num) =
+        match resolve_request_area(req, config.as_ref(), query.get("area"), is_th) {
+            Some(area) => area,
+            None => build_response!(EType::InvalidReq),
+        };
 
     if !is_tv_route {
         params.is_tv = matches!(query.get("fnval"), Some("130" | "0" | "2"));
@@ -367,23 +382,11 @@ pub async fn handle_search_request(req: &HttpRequest, is_app: bool, is_th: bool)
     let client_ip = state.resolve_client_ip(req).to_string();
 
     // detect req area
-    (params.area, params.area_num) = match query.get("area") {
-        Some(area) => match area {
-            "cn" => ("cn", 1),
-            "hk" => ("hk", 2),
-            "tw" => ("tw", 3),
-            "th" => ("th", 4),
-            _ => ("hk", 2),
-        },
-        _ => {
-            if is_th {
-                ("th", 4)
-            } else {
-                // query param must have "area", or must be invalid req
-                build_response!(EType::InvalidReq);
-            }
-        }
-    };
+    (params.area, params.area_num) =
+        match resolve_request_area(req, config.as_ref(), query.get("area"), is_th) {
+            Some(area) => area,
+            None => build_response!(EType::InvalidReq),
+        };
 
     // detect req UA
     params.user_agent = match req.headers().get("user-agent") {
@@ -586,14 +589,6 @@ pub async fn handle_search_request(req: &HttpRequest, is_app: bool, is_th: bool)
         build_response!(error);
     }
 
-    let host = match req.headers().get("Host") {
-        Some(host) => host.to_str().unwrap(),
-        _ => match req.headers().get("authority") {
-            Some(host) => host.to_str().unwrap(),
-            _ => "",
-        },
-    };
-
     debug!(
         "[GET SEARCH] IP {client_ip} | UID {} | AREA {} | KEYWORD {} -> REQ TRACE",
         uid,
@@ -611,28 +606,22 @@ pub async fn handle_search_request(req: &HttpRequest, is_app: bool, is_th: bool)
         build_response!(body_data_json);
     }
 
-    let search_remake_date = {
+    let search_remake_data = request_host(req).and_then(|host| {
         if is_app {
-            if let Some(value) = config.appsearch_remake.get(host) {
-                value
-            } else {
-                normalize_search_response(&mut body_data_json, is_app, is_th);
-                build_response!(body_data_json);
-            }
+            config.appsearch_remake.get(&host)
         } else {
-            if let Some(value) = config.websearch_remake.get(host) {
-                value
-            } else {
-                normalize_search_response(&mut body_data_json, is_app, is_th);
-                build_response!(body_data_json);
-            }
+            config.websearch_remake.get(&host)
         }
+    });
+    let Some(search_remake_data) = search_remake_data else {
+        normalize_search_response(&mut body_data_json, is_app, is_th);
+        build_response!(body_data_json);
     };
 
     if is_app {
         match body_data_json["data"]["items"].as_array_mut() {
             Some(value2) => {
-                value2.insert(0, serde_json::from_str(&search_remake_date).unwrap());
+                value2.insert(0, serde_json::from_str(search_remake_data).unwrap());
             }
             None => {
                 body_data_json["data"]["items"] = json!([]);
@@ -640,20 +629,20 @@ pub async fn handle_search_request(req: &HttpRequest, is_app: bool, is_th: bool)
                 body_data_json["data"]["items"]
                     .as_array_mut()
                     .unwrap()
-                    .insert(0, serde_json::from_str(&search_remake_date).unwrap());
+                    .insert(0, serde_json::from_str(search_remake_data).unwrap());
             }
         }
     } else {
         match body_data_json["data"]["result"].as_array_mut() {
             Some(value2) => {
-                value2.insert(0, serde_json::from_str(&search_remake_date).unwrap());
+                value2.insert(0, serde_json::from_str(search_remake_data).unwrap());
             }
             None => {
                 body_data_json["data"]["result"] = json!([]);
                 body_data_json["data"]["result"]
                     .as_array_mut()
                     .unwrap()
-                    .insert(0, serde_json::from_str(&search_remake_date).unwrap());
+                    .insert(0, serde_json::from_str(search_remake_data).unwrap());
             }
         }
     }
@@ -984,7 +973,7 @@ pub async fn errorurl_reg(url: &str) -> Option<u8> {
 mod tests {
     use super::{
         errorurl_reg, handle_api_access_key_request, handle_api_health_request,
-        handle_playurl_request, normalize_search_response,
+        handle_playurl_request, normalize_search_response, request_host, resolve_request_area,
     };
     use crate::mods::{
         audit::AuditService,
@@ -992,7 +981,7 @@ mod tests {
         storage::Database,
         types::{Area, BackgroundTaskType, BiliConfig, ReqType},
     };
-    use actix_web::{body::to_bytes, test::TestRequest, web};
+    use actix_web::{body::to_bytes, http::header, test::TestRequest, web};
     use async_channel::bounded;
     use deadpool_redis::{Config as RedisConfig, Runtime};
     use serde_json::{json, Value};
@@ -1079,9 +1068,53 @@ mod tests {
         assert!(!Area::Th.supports_tv());
     }
 
+    #[test]
+    fn request_host_mapping_overrides_area_query() {
+        let mut config = test_config();
+        config.host_area_map = [
+            ("cn.example.com".to_string(), "cn".to_string()),
+            ("hk.example.com".to_string(), "hk".to_string()),
+            ("tw.example.com".to_string(), "tw".to_string()),
+            ("th.example.com".to_string(), "th".to_string()),
+        ]
+        .into_iter()
+        .collect();
+        for (host, expected) in [
+            ("cn.example.com", ("cn", 1)),
+            ("HK.EXAMPLE.COM:443", ("hk", 2)),
+            ("tw.example.com", ("tw", 3)),
+            ("th.example.com", ("th", 4)),
+        ] {
+            let req = TestRequest::default()
+                .insert_header((header::HOST, host))
+                .to_http_request();
+            assert_eq!(
+                resolve_request_area(&req, &config, Some("cn"), false),
+                Some(expected)
+            );
+        }
+    }
+
+    #[test]
+    fn search_injection_host_is_normalized() {
+        for (host, expected) in [
+            ("example.com", "example.com"),
+            ("EXAMPLE.COM:443", "example.com"),
+            ("example.com.", "example.com"),
+        ] {
+            let req = TestRequest::default()
+                .insert_header((header::HOST, host))
+                .to_http_request();
+            assert_eq!(request_host(&req).as_deref(), Some(expected));
+        }
+    }
+
     #[actix_web::test]
     async fn thailand_tv_requests_are_rejected() {
-        let config = test_config();
+        let mut config = test_config();
+        config
+            .host_area_map
+            .insert("th.example.com".to_string(), "th".to_string());
         let pool = RedisConfig::from_url("redis://127.0.0.1/")
             .create_pool(Some(Runtime::Tokio1))
             .unwrap();
@@ -1097,13 +1130,18 @@ mod tests {
             audit,
         ));
 
-        for (uri, is_tv_route) in [
-            ("/pgc/player/api/playurltv?area=th", true),
-            ("/pgc/player/api/playurl?area=th&fnval=130", false),
+        for (uri, is_tv_route, host) in [
+            ("/pgc/player/api/playurltv?area=th", true, None),
+            ("/pgc/player/api/playurl?area=th&fnval=130", false, None),
+            ("/pgc/player/api/playurltv", true, Some("th.example.com")),
         ] {
-            let req = TestRequest::with_uri(uri)
-                .app_data(state.clone())
-                .to_http_request();
+            let request = TestRequest::with_uri(uri);
+            let request = if let Some(host) = host {
+                request.insert_header((header::HOST, host))
+            } else {
+                request
+            };
+            let req = request.app_data(state.clone()).to_http_request();
             let resp = handle_playurl_request(&req, true, false, is_tv_route).await;
             let body = to_bytes(resp.into_body()).await.unwrap();
             let body_json: Value = serde_json::from_slice(&body).unwrap();

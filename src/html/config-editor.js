@@ -198,6 +198,7 @@
 
     renderValue(path, value, metadata = {}) {
       if (metadata.control === "variant") return this.renderVariant(path, value, metadata);
+      if (metadata.control === "json") return this.renderSerializedJson(path, value, metadata);
       if (Array.isArray(value)) return this.renderArray(path, value, metadata);
       if (isObject(value)) return this.renderObject(path, value, metadata);
       return this.renderPrimitive(path, value, metadata);
@@ -280,6 +281,258 @@
       return input;
     }
 
+    renderSerializedJson(path, value, metadata) {
+      const wrapper = document.createElement("div");
+      wrapper.className = "serialized-json-editor";
+      const visual = document.createElement("details");
+      visual.className = "json-mode";
+      const visualSummary = document.createElement("summary");
+      const tree = document.createElement("div");
+      tree.className = "json-tree-root";
+      visual.append(visualSummary, tree);
+
+      const rawMode = document.createElement("details");
+      rawMode.className = "json-mode raw-json-mode";
+      const rawSummary = document.createElement("summary");
+      rawSummary.textContent = "原始 JSON";
+      const raw = document.createElement("textarea");
+      raw.className = "json-raw-input";
+      raw.rows = 10;
+      raw.spellcheck = false;
+      raw.setAttribute("aria-label", `${metadata.label || path.at(-1)} 原始 JSON`);
+      const validation = document.createElement("p");
+      validation.className = "json-validation hidden";
+      rawMode.append(rawSummary, raw, validation);
+
+      let parsed = null;
+      let treeRendered = false;
+      const parse = text => {
+        try {
+          const next = JSON.parse(text);
+          if (metadata.jsonRoot === "object" && !isObject(next)) {
+            return { error: "JSON 根节点必须是对象" };
+          }
+          return { value: next };
+        } catch (error) {
+          return { error: `JSON 无法解析：${error.message}` };
+        }
+      };
+      const updateSummary = () => {
+        const count = isObject(parsed) ? Object.keys(parsed).length : Array.isArray(parsed) ? parsed.length : 1;
+        visualSummary.textContent = `可视化编辑 · ${count} 项`;
+      };
+      const showValidation = message => {
+        validation.textContent = message || "";
+        validation.classList.toggle("hidden", !message);
+        raw.classList.toggle("invalid-input", Boolean(message));
+      };
+      const commit = () => {
+        const serialized = JSON.stringify(parsed);
+        this.setAtPath(path, serialized);
+        raw.value = JSON.stringify(parsed, null, 2);
+        showValidation("");
+        updateSummary();
+        this.changed();
+      };
+      const renderTree = () => {
+        tree.replaceChildren(this.renderJsonNode(
+          parsed,
+          next => { parsed = next; },
+          commit,
+          renderTree,
+          0,
+          metadata.jsonRoot === "object"
+        ));
+        treeRendered = true;
+        if (window.lucide) window.lucide.createIcons();
+      };
+      const initial = parse(String(value ?? ""));
+      if (initial.error) {
+        visual.classList.add("hidden");
+        rawMode.open = true;
+        raw.value = String(value ?? "");
+        showValidation(initial.error);
+      } else {
+        parsed = initial.value;
+        raw.value = JSON.stringify(parsed, null, 2);
+        updateSummary();
+      }
+      visual.addEventListener("toggle", () => {
+        if (visual.open && !treeRendered && parsed !== null) renderTree();
+      });
+      raw.addEventListener("input", () => {
+        const result = parse(raw.value);
+        if (result.error) {
+          this.setAtPath(path, raw.value);
+          visual.classList.add("hidden");
+          showValidation(result.error);
+          this.changed();
+          return;
+        }
+        parsed = result.value;
+        treeRendered = false;
+        tree.replaceChildren();
+        visual.classList.remove("hidden");
+        showValidation("");
+        updateSummary();
+        this.setAtPath(path, JSON.stringify(parsed));
+        this.changed();
+        if (visual.open) renderTree();
+      });
+      wrapper.append(visual, rawMode);
+      return wrapper;
+    }
+
+    renderJsonNode(value, update, commit, refresh, depth, typeLocked = false) {
+      if (isObject(value) || Array.isArray(value)) {
+        const details = document.createElement("details");
+        details.className = "json-container";
+        details.open = depth === 0;
+        const summary = document.createElement("summary");
+        const isArray = Array.isArray(value);
+        const size = isArray ? value.length : Object.keys(value).length;
+        summary.textContent = `${isArray ? "数组" : "对象"} · ${size} 项`;
+        const body = document.createElement("div");
+        body.className = "json-container-body";
+        if (!typeLocked) {
+          body.append(this.renderJsonTypeSelect(isArray ? "array" : "object", update, commit, refresh));
+        }
+
+        const entries = isArray ? value.map((item, index) => [String(index), item]) : Object.entries(value);
+        entries.forEach(([key, child], index) => {
+          const row = document.createElement("div");
+          row.className = "json-tree-row";
+          let keyControl;
+          if (isArray) {
+            keyControl = document.createElement("span");
+            keyControl.className = "json-index";
+            keyControl.textContent = `项目 ${index + 1}`;
+          } else {
+            keyControl = document.createElement("input");
+            keyControl.className = "json-key-input";
+            keyControl.value = key;
+            keyControl.setAttribute("aria-label", `JSON 字段 ${key}`);
+            keyControl.addEventListener("change", () => {
+              const nextKey = keyControl.value.trim();
+              if (!nextKey || (nextKey !== key && Object.hasOwn(value, nextKey))) {
+                this.onError(nextKey ? "JSON 字段名已经存在" : "JSON 字段名不能为空");
+                refresh();
+                return;
+              }
+              if (nextKey === key) return;
+              const renamed = {};
+              Object.entries(value).forEach(([currentKey, currentValue]) => {
+                renamed[currentKey === key ? nextKey : currentKey] = currentValue;
+              });
+              update(renamed);
+              commit();
+              refresh();
+            });
+          }
+          const childControl = this.renderJsonNode(
+            child,
+            next => {
+              if (isArray) value[index] = next;
+              else value[key] = next;
+            },
+            commit,
+            refresh,
+            depth + 1,
+            false
+          );
+          const remove = this.iconButton("trash-2", "删除 JSON 项", () => {
+            if (isArray) value.splice(index, 1);
+            else delete value[key];
+            commit();
+            refresh();
+          });
+          row.append(keyControl, childControl, remove);
+          body.append(row);
+        });
+        body.append(this.addButton(isArray ? "添加数组项" : "添加字段", () => {
+          if (isArray) {
+            value.push("");
+          } else {
+            let index = 1;
+            while (Object.hasOwn(value, `new_field_${index}`)) index += 1;
+            value[`new_field_${index}`] = "";
+          }
+          commit();
+          refresh();
+        }));
+        details.append(summary, body);
+        return details;
+      }
+
+      const wrapper = document.createElement("div");
+      wrapper.className = "json-scalar";
+      const type = value === null ? "null" : typeof value;
+      const typeSelect = this.renderJsonTypeSelect(type, update, commit, refresh);
+
+      let input;
+      if (type === "boolean") {
+        const label = document.createElement("label");
+        label.className = "switch json-boolean";
+        const checkbox = document.createElement("input");
+        checkbox.type = "checkbox";
+        checkbox.checked = value;
+        checkbox.setAttribute("aria-label", "JSON 布尔值");
+        const track = document.createElement("span");
+        track.className = "switch-track";
+        const state = document.createElement("span");
+        state.className = "switch-state";
+        state.textContent = value ? "true" : "false";
+        checkbox.addEventListener("change", () => {
+          update(checkbox.checked);
+          state.textContent = checkbox.checked ? "true" : "false";
+          commit();
+        });
+        label.append(checkbox, track, state);
+        input = label;
+      } else if (type === "null") {
+        input = document.createElement("span");
+        input.className = "json-null";
+        input.textContent = "null";
+      } else {
+        const multiline = type === "string" && (value.length > 100 || value.includes("\n"));
+        input = document.createElement(multiline ? "textarea" : "input");
+        if (multiline) input.rows = 3;
+        if (type === "number") {
+          input.type = "number";
+          input.step = "any";
+        }
+        input.value = value;
+        input.setAttribute("aria-label", "JSON 值");
+        input.addEventListener("input", () => {
+          if (type === "number" && input.value === "") return;
+          update(type === "number" ? Number(input.value) : input.value);
+          commit();
+        });
+      }
+      wrapper.append(typeSelect, input);
+      return wrapper;
+    }
+
+    renderJsonTypeSelect(type, update, commit, refresh) {
+      const typeSelect = document.createElement("select");
+      typeSelect.className = "json-type-select";
+      typeSelect.setAttribute("aria-label", "JSON 类型");
+      ["string", "number", "boolean", "null", "object", "array"].forEach(option => {
+        const item = document.createElement("option");
+        item.value = option;
+        item.textContent = { string: "文本", number: "数字", boolean: "布尔", null: "空值", object: "对象", array: "数组" }[option];
+        item.selected = option === type;
+        typeSelect.append(item);
+      });
+      typeSelect.addEventListener("change", () => {
+        const defaults = { string: "", number: 0, boolean: false, null: null, object: {}, array: [] };
+        update(clone(defaults[typeSelect.value]));
+        commit();
+        refresh();
+      });
+      return typeSelect;
+    }
+
     renderArray(path, value, metadata) {
       const wrapper = document.createElement("div");
       wrapper.className = "collection-editor";
@@ -312,11 +565,12 @@
         const childMetadata = {
           ...(metadata.children?.[objectKey] || {}),
           control: metadata.children?.[objectKey]?.control || metadata.valueControl,
+          options: metadata.children?.[objectKey]?.options || metadata.valueOptions,
           secret: metadata.secret || metadata.children?.[objectKey]?.secret,
           label: metadata.childLabels?.[objectKey] || metadata.children?.[objectKey]?.label || objectKey
         };
         const row = document.createElement("div");
-        row.className = `collection-row${isObject(childValue) || Array.isArray(childValue) ? " complex" : ""}`;
+        row.className = `collection-row${isObject(childValue) || Array.isArray(childValue) || childMetadata.control === "json" ? " complex" : ""}`;
         if (metadata.fixedKeys) {
           const keyInfo = document.createElement("div");
           keyInfo.className = "collection-key-info";
@@ -334,7 +588,8 @@
           const key = document.createElement("input");
           key.className = "collection-key-input";
           key.value = objectKey;
-          key.setAttribute("aria-label", "配置键");
+          key.placeholder = metadata.keyPlaceholder || "";
+          key.setAttribute("aria-label", metadata.keyLabel || "配置键");
           key.addEventListener("change", () => this.renameObjectKey(path, objectKey, key.value));
           row.append(key);
         }
@@ -353,7 +608,10 @@
           const key = this.nextObjectKey(value);
           value[key] = this.defaultObjectValue(metadata, value);
           this.render();
-          this.form.querySelector(`.config-field[data-path="${path[0]}"] .collection-key-input:last-of-type`)?.focus();
+          const inputs = this.form.querySelectorAll(`.config-field[data-path="${path[0]}"] .collection-key-input`);
+          const input = inputs.item(inputs.length - 1);
+          input?.focus();
+          input?.select();
           this.changed();
         }));
       }
@@ -404,6 +662,8 @@
     }
 
     defaultObjectValue(metadata, value) {
+      if (metadata.valueControl === "select") return metadata.valueOptions?.[0] || "";
+      if (metadata.valueControl === "json") return "{}";
       if (metadata.valueType === "number") return 0;
       if (metadata.valueType === "boolean") return false;
       const sample = Object.values(value)[0];

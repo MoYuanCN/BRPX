@@ -18,6 +18,7 @@
         { "path": "rate_limit_per_second", "label": "每秒请求数", "description": "每个 access key 或解析后客户端 IP 的持续请求速率。", "effect": "超过速率时返回业务码 -429。", "restart": true, "min": 1 },
         { "path": "rate_limit_burst", "label": "突发容量", "description": "限流器允许短时间积累的请求额度。", "effect": "值越大越能容忍瞬时请求，也会减弱突发保护。", "restart": true, "min": 1 },
         { "path": "trusted_proxies", "label": "可信代理", "description": "允许提供 X-Forwarded-For 或 X-Real-IP 的 TCP 对端 IP/CIDR。", "effect": "配置过宽会允许伪造来源 IP，建议只填精确代理地址。", "control": "array", "itemLabel": "IP 或 CIDR" },
+        { "path": "host_area_map", "label": "访问域名地区映射", "description": "把不带协议和端口的访问域名映射到 cn、hk、tw 或 th。", "effect": "播放和搜索请求优先按 Host 选择地区；未命中时继续使用 area 参数。修改后立即生效。", "keyLabel": "访问域名", "keyPlaceholder": "例如 api.example.com", "valueControl": "select", "valueOptions": ["cn", "hk", "tw", "th"] },
         { "path": "audit_retention_days", "label": "审计保留天数", "description": "请求审计事件在 SQLite 中保存的最长时间。", "effect": "启动后立即清理一次，之后每小时清理过期数据。", "min": 1, "max": 3650 }
       ]
     },
@@ -113,8 +114,8 @@
         { "path": "area_cache_open", "label": "启用地区缓存", "description": "缓存剧集可用地区判断。", "effect": "减少重复地区探测请求。" },
         { "path": "aid_replace_open", "label": "启用 AID 替换", "description": "在兼容路径中使用配置的 AID 修整响应。", "effect": "关闭后保留上游返回的原始标识。" },
         { "path": "aid", "label": "替换 AID", "description": "AID 替换功能使用的目标数值。", "effect": "仅在 aid_replace_open 开启时生效。", "min": 1 },
-        { "path": "appsearch_remake", "label": "APP 搜索注入", "description": "关键词到 APP 搜索结果 JSON 字符串的映射。", "effect": "命中关键词时把自定义条目加入搜索响应。", "valueControl": "textarea" },
-        { "path": "websearch_remake", "label": "Web 搜索注入", "description": "关键词到 Web 搜索结果 JSON 字符串的映射。", "effect": "命中关键词时把自定义条目加入搜索响应。", "valueControl": "textarea" },
+        { "path": "appsearch_remake", "label": "APP 搜索注入", "description": "访问域名到 APP 搜索结果 JSON 对象的映射。", "effect": "APP 搜索请求的 Host 命中域名时，把自定义条目加入响应；表单会解析字符串并提供字段树编辑。", "keyLabel": "APP 搜索访问域名", "keyPlaceholder": "例如 app-search.example.com", "valueControl": "json", "jsonRoot": "object" },
+        { "path": "websearch_remake", "label": "Web 搜索注入", "description": "访问域名到 Web 搜索结果 JSON 对象的映射。", "effect": "Web 搜索请求的 Host 命中域名时，把自定义条目加入响应；表单会解析字符串并提供字段树编辑。", "keyLabel": "Web 搜索访问域名", "keyPlaceholder": "例如 web-search.example.com", "valueControl": "json", "jsonRoot": "object" },
         { "path": "donate_url", "label": "捐赠跳转地址", "description": "/donate 路由重定向到的 URL。", "effect": "留空时仍保留路由，但不会提供有效目标。", "control": "url" }
       ]
     },

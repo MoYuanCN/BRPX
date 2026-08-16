@@ -3,7 +3,7 @@ use super::{
     audit::{AuditQuery, AuditService},
     config::save_biliconfig_atomic,
     storage::Database,
-    types::{BackgroundTaskType, BiliConfig},
+    types::{is_valid_domain_mapping_key, Area, BackgroundTaskType, BiliConfig},
 };
 use actix_web::{
     cookie::{time::Duration as CookieDuration, Cookie, SameSite},
@@ -351,7 +351,7 @@ async fn update_config(
     let Some(next_object) = next_value.as_object_mut() else {
         return api_error(StatusCode::BAD_REQUEST, "配置必须是 JSON 对象");
     };
-    next_object.insert("config_version".to_string(), Value::from(6));
+    next_object.insert("config_version".to_string(), Value::from(7));
 
     let mut next: BiliConfig = match serde_json::from_value(next_value) {
         Ok(value) => value,
@@ -766,6 +766,44 @@ fn validate_config(config: &BiliConfig) -> Result<(), Vec<Value>> {
             }));
         }
     }
+    for (host, area) in &config.host_area_map {
+        if !is_valid_domain_mapping_key(host) {
+            errors.push(json!({
+                "field": format!("host_area_map.{host}"),
+                "message": "域名必须是不带协议、端口和路径的有效小写 DNS 主机名"
+            }));
+        }
+        if Area::from_code(area).is_none() {
+            errors.push(json!({
+                "field": format!("host_area_map.{host}"),
+                "message": "地区只能是 cn、hk、tw 或 th"
+            }));
+        }
+    }
+    for (field, entries) in [
+        ("appsearch_remake", &config.appsearch_remake),
+        ("websearch_remake", &config.websearch_remake),
+    ] {
+        for (host, serialized) in entries {
+            if !is_valid_domain_mapping_key(host) {
+                errors.push(json!({
+                    "field": format!("{field}.{host}"),
+                    "message": "域名必须是不带协议、端口和路径的有效小写 DNS 主机名"
+                }));
+            }
+            match serde_json::from_str::<Value>(serialized) {
+                Ok(Value::Object(_)) => {}
+                Ok(_) => errors.push(json!({
+                    "field": format!("{field}.{host}"),
+                    "message": "JSON 根节点必须是对象"
+                })),
+                Err(error) => errors.push(json!({
+                    "field": format!("{field}.{host}"),
+                    "message": format!("JSON 无法解析: {error}")
+                })),
+            }
+        }
+    }
     let urls = [
         ("cn_app_playurl_api", &config.cn_app_playurl_api),
         ("tw_app_playurl_api", &config.tw_app_playurl_api),
@@ -924,6 +962,69 @@ mod tests {
         assert!(is_trusted_proxy("127.0.0.1".parse().unwrap(), &trusted));
         assert!(is_trusted_proxy("10.2.3.4".parse().unwrap(), &trusted));
         assert!(!is_trusted_proxy("192.0.2.1".parse().unwrap(), &trusted));
+    }
+
+    #[test]
+    fn host_area_map_rejects_invalid_hosts_and_areas() {
+        let mut config: BiliConfig =
+            serde_json::from_str(include_str!("../../config.example.json")).unwrap();
+        config
+            .host_area_map
+            .insert("HK.EXAMPLE.COM:443".to_string(), "invalid".to_string());
+        config
+            .host_area_map
+            .insert("new_key_1".to_string(), "cn".to_string());
+
+        let errors = validate_config(&config).unwrap_err();
+        assert!(errors.iter().any(|error| {
+            error["field"] == "host_area_map.HK.EXAMPLE.COM:443"
+                && error["message"].as_str().unwrap().contains("域名")
+        }));
+        assert!(errors.iter().any(|error| {
+            error["field"] == "host_area_map.HK.EXAMPLE.COM:443"
+                && error["message"].as_str().unwrap().contains("地区")
+        }));
+        assert!(errors.iter().any(|error| {
+            error["field"] == "host_area_map.new_key_1"
+                && error["message"].as_str().unwrap().contains("域名")
+        }));
+    }
+
+    #[test]
+    fn search_injection_requires_json_objects() {
+        let mut config: BiliConfig =
+            serde_json::from_str(include_str!("../../config.example.json")).unwrap();
+        config
+            .appsearch_remake
+            .insert("broken.example.com".to_string(), "{".to_string());
+        config
+            .websearch_remake
+            .insert("array.example.com".to_string(), "[]".to_string());
+
+        let errors = validate_config(&config).unwrap_err();
+        assert!(errors.iter().any(|error| {
+            error["field"] == "appsearch_remake.broken.example.com"
+                && error["message"].as_str().unwrap().contains("无法解析")
+        }));
+        assert!(errors.iter().any(|error| {
+            error["field"] == "websearch_remake.array.example.com"
+                && error["message"].as_str().unwrap().contains("必须是对象")
+        }));
+    }
+
+    #[test]
+    fn search_injection_rejects_invalid_domain_keys() {
+        let mut config: BiliConfig =
+            serde_json::from_str(include_str!("../../config.example.json")).unwrap();
+        config
+            .appsearch_remake
+            .insert("HTTPS://EXAMPLE.COM/path".to_string(), "{}".to_string());
+
+        let errors = validate_config(&config).unwrap_err();
+        assert!(errors.iter().any(|error| {
+            error["field"] == "appsearch_remake.HTTPS://EXAMPLE.COM/path"
+                && error["message"].as_str().unwrap().contains("域名")
+        }));
     }
 
     #[test]

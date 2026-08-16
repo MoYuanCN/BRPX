@@ -3,7 +3,10 @@ use super::{
     ep_info::get_ep_need_vip,
     request::{redis_get, redis_set},
 };
-use actix_web::{http::header::ContentType, HttpRequest, HttpResponse};
+use actix_web::{
+    http::{header::ContentType, uri::Authority},
+    HttpRequest, HttpResponse,
+};
 use async_channel::{Sender, TrySendError};
 use chrono::{FixedOffset, Local, TimeZone, Utc};
 use deadpool_redis::Pool;
@@ -136,6 +139,8 @@ pub struct BiliConfig {
     pub area_cache_open: bool,
     #[serde(default = "default_trusted_proxies")]
     pub trusted_proxies: Vec<String>,
+    #[serde(default = "default_host_area_map")]
+    pub host_area_map: HashMap<String, String>,
     #[serde(default = "default_audit_retention_days")]
     pub audit_retention_days: u32,
     // 以下为不会序列化的配置
@@ -1963,7 +1968,7 @@ impl ReportHealthData {
 * the following is general types
 */
 fn config_version() -> u16 {
-    6
+    7
 }
 
 fn default_false() -> bool {
@@ -1992,6 +1997,34 @@ fn default_tv_playurl_api() -> String {
 
 fn default_trusted_proxies() -> Vec<String> {
     vec!["127.0.0.1".to_string(), "::1".to_string()]
+}
+
+pub(crate) fn default_host_area_map() -> HashMap<String, String> {
+    HashMap::new()
+}
+
+pub(crate) fn normalize_host(value: &str) -> Option<String> {
+    let authority = value.trim().parse::<Authority>().ok()?;
+    let host = authority.host().trim_end_matches('.');
+    if host.is_empty() {
+        None
+    } else {
+        Some(host.to_ascii_lowercase())
+    }
+}
+
+pub(crate) fn is_valid_domain_mapping_key(value: &str) -> bool {
+    normalize_host(value).as_deref() == Some(value)
+        && value.len() <= 253
+        && value.split('.').all(|label| {
+            !label.is_empty()
+                && label.len() <= 63
+                && !label.starts_with('-')
+                && !label.ends_with('-')
+                && label
+                    .bytes()
+                    .all(|byte| byte.is_ascii_alphanumeric() || byte == b'-')
+        })
 }
 
 fn default_audit_retention_days() -> u32 {
@@ -2149,6 +2182,25 @@ impl Area {
 
     pub fn supports_tv(&self) -> bool {
         !matches!(self, Area::Th)
+    }
+
+    pub fn from_code(area: &str) -> Option<Self> {
+        match area {
+            "cn" => Some(Self::Cn),
+            "hk" => Some(Self::Hk),
+            "tw" => Some(Self::Tw),
+            "th" => Some(Self::Th),
+            _ => None,
+        }
+    }
+}
+
+impl BiliConfig {
+    pub fn area_for_host(&self, host: &str) -> Option<Area> {
+        let host = normalize_host(host)?;
+        self.host_area_map
+            .get(&host)
+            .and_then(|area| Area::from_code(area))
     }
 }
 

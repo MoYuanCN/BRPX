@@ -1,4 +1,4 @@
-use super::types::{BiliConfig, BiliRuntime};
+use super::types::{default_host_area_map, BiliConfig, BiliRuntime};
 use std::{
     fs::{self, File},
     io::Write,
@@ -145,7 +145,7 @@ fn migrate_config_value(config: &mut serde_json::Value) -> bool {
         .get("config_version")
         .and_then(serde_json::Value::as_u64)
         .unwrap_or(1);
-    if version >= 6 {
+    if version >= 7 {
         return false;
     }
 
@@ -174,7 +174,10 @@ fn migrate_config_value(config: &mut serde_json::Value) -> bool {
     ] {
         object.remove(deprecated);
     }
-    object.insert("config_version".to_string(), serde_json::Value::from(6));
+    object
+        .entry("host_area_map".to_string())
+        .or_insert_with(|| serde_json::to_value(default_host_area_map()).unwrap());
+    object.insert("config_version".to_string(), serde_json::Value::from(7));
     true
 }
 
@@ -193,7 +196,7 @@ mod tests {
         assert!(migrate_config_value(&mut value));
         assert_eq!(value["http_port"], 2662);
         assert_eq!(value["worker_num"], 8);
-        assert_eq!(value["config_version"], 6);
+        assert_eq!(value["config_version"], 7);
         assert!(value.get("port").is_none());
         assert!(value.get("woker_num").is_none());
     }
@@ -206,7 +209,16 @@ mod tests {
         });
 
         assert!(migrate_config_value(&mut value));
-        assert_eq!(value["config_version"], 6);
+        assert_eq!(value["config_version"], 7);
         assert!(value.get("th_tv_playurl_api").is_none());
+    }
+
+    #[test]
+    fn migration_adds_empty_host_area_map() {
+        let mut value = serde_json::json!({ "config_version": 6 });
+
+        assert!(migrate_config_value(&mut value));
+        assert_eq!(value["config_version"], 7);
+        assert_eq!(value["host_area_map"], serde_json::json!({}));
     }
 }

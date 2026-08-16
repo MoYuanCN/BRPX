@@ -10,7 +10,8 @@ BRPX 是一个基于 Rust、Actix Web 和 Redis 的自托管哔哩哔哩解析�
 - APP、Web、泰区字幕和 `access_key` 接口
 - 大陆、香港、台湾 TV 路由 `/pgc/player/api/playurltv`（泰区不支持 TV）
 - Redis 缓存、地区缓存、限流、上游代理和重签名
-- Web 管理端与版本化配置
+- 按访问域名自动选择大陆、香港、台湾或泰区
+- Web 管理端、版本化配置和搜索注入 JSON 可视化编辑
 - UID、IP、CIDR、访问令牌指纹允许/拒绝规则
 - 请求审计、筛选、保留期清理和番剧标题异步补全
 - Linux/systemd 一键安装、快速更新、升级备份和安全卸载
@@ -145,6 +146,8 @@ BRPX 只在 TCP 对端属于 `trusted_proxies` 时接受转发 IP 头，防止�
 ## 反向代理与 HTTPS
 
 建议由 Nginx、Caddy 或现有网关终止 HTTPS，再代理到 `127.0.0.1:2662`。必须传递真实客户端地址，并把代理地址加入 `trusted_proxies`。
+
+BRPX 的运行时默认不预设访问域名。示例配置使用 `cn.example.com`、`hk.example.com`、`tw.example.com` 和 `th.example.com` 演示格式，部署后必须在管理端的“访问域名地区映射”中替换为自己的域名；命中映射时 Host 优先于请求的 `area` 参数。反向代理必须保留原始 Host。
 
 内置 HTTPS 从运行目录的以下文件加载证书：
 

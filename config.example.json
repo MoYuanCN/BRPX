@@ -1,5 +1,5 @@
 {
-  "config_version": 6,
+  "config_version": 7,
   "redis": "redis://127.0.0.1:6379",
   "worker_num": 8,
   "http_port": 2662,
@@ -129,5 +129,11 @@
     "127.0.0.1",
     "::1"
   ],
+  "host_area_map": {
+    "cn.example.com": "cn",
+    "hk.example.com": "hk",
+    "tw.example.com": "tw",
+    "th.example.com": "th"
+  },
   "audit_retention_days": 30
 }
